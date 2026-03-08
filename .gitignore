@@ -1,0 +1,44 @@
+# Generated output
+**/cloud-init.yaml
+
+# Local configuration (contains SSH keys, domains, passwords, etc.)
+**/config.env
+
+# User data (contains real names)
+**/users.csv
+
+# TAK Server installer (large proprietary binary — download from tak.gov)
+tak-server/*.zip
+tak-server/*.deb
+
+# SSH keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Certificates / keystores
+*.p12
+*.jks
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ansible vault password files
+.vault_pass
+.vault_password
+
+# Kubeconfig / sensitive configs
+kubeconfig
+*.kubeconfig
+
+# Backup files that may contain secrets
+*.bak
+*.backup
