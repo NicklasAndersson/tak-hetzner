@@ -148,16 +148,85 @@ if [[ -n "$CORE_CONFIG" ]]; then
   # Backup
   cp "$CORE_CONFIG" "${CORE_CONFIG}.bak.$(date +%s)"
 
-  # Update keystore references in CoreConfig.xml
-  # The connector for port 8443 typically has keystoreFile and keystorePass
-  if grep -q 'keystoreFile' "$CORE_CONFIG"; then
-    # Get the relative path within the container (usually /opt/tak/certs/files/)
-    CONTAINER_CERT_PATH=$(echo "$KEYSTORE_P12" | sed "s|${TAK_DIR}|/opt/tak|")
-    sed -i "s|keystoreFile=\"[^\"]*\"|keystoreFile=\"${CONTAINER_CERT_PATH}\"|g" "$CORE_CONFIG"
-    log "Updated keystoreFile in CoreConfig.xml"
+  # NOTE: Do NOT replace the global keystoreFile in CoreConfig.xml.
+  # TAK Server uses its own CA-signed keystore (takserver.jks) for mTLS on
+  # connectors 8089, 8443, and federation. Replacing it with the LE cert
+  # breaks client-certificate authentication.
+  #
+  # However, the enrollment connector (port 8446, clientAuth=false) SHOULD use
+  # the LE cert so ATAK Quick Connect can verify the server's identity without
+  # needing the TAK CA pre-installed.
+  # Determine the container-relative path for the JKS keystore
+  CONTAINER_JKS_PATH=$(echo "$JKS_FILE" | sed "s|${TAK_DIR}/||")
+
+  # Update the enrollment connector (port 8446) to use LE cert
+  if grep -q 'port="8446"' "$CORE_CONFIG"; then
+    # Remove any existing keystoreFile/keystorePass on the 8446 connector, then add LE keystore
+    python3 -c "
+import re, sys
+with open('$CORE_CONFIG') as f:
+    xml = f.read()
+# Match the 8446 connector and replace it cleanly
+xml = re.sub(
+    r'<connector port=\"8446\" clientAuth=\"false\" _name=\"cert_https\"[^/]*/>' ,
+    '<connector port=\"8446\" clientAuth=\"false\" _name=\"cert_https\" keystoreFile=\"${CONTAINER_JKS_PATH}\" keystorePass=\"${TAK_CA_PASS}\"/>',
+    xml
+)
+with open('$CORE_CONFIG', 'w') as f:
+    f.write(xml)
+"
+    log "Updated port 8446 connector to use LE keystore for ATAK enrollment"
   fi
 
-  info "Note: You may need to manually verify CoreConfig.xml connector settings"
+  # ------------------------------------------------------------------
+  # 5. Add certificateSigning config for ATAK enrollment
+  # ------------------------------------------------------------------
+  # TAK Server needs <certificateSigning> with <certificateConfig> in
+  # CoreConfig.xml for the /Marti/api/tls/config endpoint to work.
+  # This is required for ATAK Quick Connect QR code enrollment.
+  if ! grep -q 'certificateSigning' "$CORE_CONFIG"; then
+    info "Adding certificateSigning config for ATAK enrollment..."
+
+    # Create CA JKS keystore from the CA PEM files
+    CA_PEM="${CERT_FILES_DIR}/ca.pem"
+    CA_KEY="${CERT_FILES_DIR}/ca-do-not-share.key"
+    CA_JKS="${CERT_FILES_DIR}/ca-do-not-edit"
+    CA_P12="${CERT_FILES_DIR}/ca-do-not-edit.p12"
+
+    if [[ -f "$CA_PEM" && -f "$CA_KEY" ]]; then
+      openssl pkcs12 -export \
+        -in "$CA_PEM" \
+        -inkey "$CA_KEY" \
+        -passin "pass:${TAK_CA_PASS}" \
+        -out "$CA_P12" \
+        -name ca \
+        -passout "pass:${TAK_CA_PASS}"
+
+      keytool -importkeystore \
+        -srckeystore "$CA_P12" \
+        -srcstoretype PKCS12 \
+        -srcstorepass "${TAK_CA_PASS}" \
+        -destkeystore "$CA_JKS" \
+        -deststoretype JKS \
+        -deststorepass "${TAK_CA_PASS}" \
+        -noprompt
+
+      chown 1000:1000 "$CA_JKS" "$CA_P12" 2>/dev/null || true
+      log "CA keystore created: ${CA_JKS}"
+    else
+      warn "CA PEM files not found — cannot create CA keystore for enrollment"
+    fi
+
+    # Determine container-relative path for the CA keystore
+    CONTAINER_CA_PATH=$(echo "$CA_JKS" | sed "s|${TAK_DIR}/||")
+
+    # Insert certificateSigning block after </auth>
+    sed -i "/<\/auth>/a\\    <certificateSigning CA=\"TAKServer\">\n        <certificateConfig>\n            <nameEntries>\n                <nameEntry name=\"O\" value=\"TAK\"\/>\n                <nameEntry name=\"OU\" value=\"TAK\"\/>\n            <\/nameEntries>\n        <\/certificateConfig>\n        <TAKServerCAConfig keystore=\"JKS\" keystoreFile=\"${CONTAINER_CA_PATH}\" keystorePass=\"${TAK_CA_PASS}\" validityDays=\"1825\" signatureAlg=\"SHA256WithRSA\"\/>\n    <\/certificateSigning>" "$CORE_CONFIG"
+    log "Added certificateSigning config to CoreConfig.xml"
+  else
+    info "certificateSigning already present in CoreConfig.xml"
+  fi
+
   info "Config: ${CORE_CONFIG}"
 else
   warn "CoreConfig.xml not found — update keystore path manually"
@@ -236,8 +305,5 @@ systemctl restart caddy 2>/dev/null || true
 HOOK
 chmod +x "$RENEW_HOOK"
 log "Auto-renewal hook installed"
-
-# Test renewal (dry-run)
-certbot renew --dry-run 2>/dev/null && log "Certbot renewal dry-run passed" || warn "Certbot renewal dry-run failed"
 
 log "Let's Encrypt setup complete for ${DOMAIN}"
