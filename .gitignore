@@ -42,3 +42,11 @@ kubeconfig
 # Backup files that may contain secrets
 *.bak
 *.backup
+
+# Generated enrollment output
+*.pdf
+**/passwords.csv
+**/*-passwords.csv
+
+# Python virtual environment
+.venv/
