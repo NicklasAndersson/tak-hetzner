@@ -148,16 +148,30 @@ if [[ -n "$CORE_CONFIG" ]]; then
   # Backup
   cp "$CORE_CONFIG" "${CORE_CONFIG}.bak.$(date +%s)"
 
-  # NOTE: Do NOT replace the global keystoreFile in CoreConfig.xml.
-  # TAK Server uses its own CA-signed keystore (takserver.jks) for mTLS on
-  # connectors 8089, 8443, and federation. Replacing it with the LE cert
-  # breaks client-certificate authentication.
-  #
-  # However, the enrollment connector (port 8446, clientAuth=false) SHOULD use
-  # the LE cert so ATAK Quick Connect can verify the server's identity without
-  # needing the TAK CA pre-installed.
+  # Use LE cert for the global TLS keystore (streaming ports 8089, 8090).
+  # This allows iTAK to connect on port 8090 (auth="file") without needing
+  # the TAK CA truststore pre-installed, since iOS/Android trust LE natively.
+  # The truststoreFile (truststore-root.jks) remains unchanged so the server
+  # still validates ATAK client certs signed by the TAK CA on port 8089.
+  # Federation TLS is NOT changed (it has its own <tls> element).
   # Determine the container-relative path for the JKS keystore
   CONTAINER_JKS_PATH=$(echo "$JKS_FILE" | sed "s|${TAK_DIR}/||")
+
+  # Update global TLS keystore for streaming inputs (8089, 8090)
+  python3 -c "
+import re
+with open('$CORE_CONFIG') as f:
+    xml = f.read()
+# Replace global TLS keystoreFile (the one with truststore-root, NOT fed-truststore)
+xml = re.sub(
+    r'(<tls [^>]*keystoreFile=\")certs/files/takserver\.jks(\"[^>]*truststoreFile=\"[^\"]*truststore-root)',
+    r'\g<1>${CONTAINER_JKS_PATH}\g<2>',
+    xml
+)
+with open('$CORE_CONFIG', 'w') as f:
+    f.write(xml)
+"
+  log "Updated global TLS keystore to LE for streaming ports (8089, 8090)"
 
   # Update the enrollment connector (port 8446) to use LE cert
   if grep -q 'port="8446"' "$CORE_CONFIG"; then
@@ -225,6 +239,21 @@ with open('$CORE_CONFIG', 'w') as f:
     log "Added certificateSigning config to CoreConfig.xml"
   else
     info "certificateSigning already present in CoreConfig.xml"
+  fi
+
+  # ------------------------------------------------------------------
+  # 5b. Add iTAK streaming input (port 8090, username/password auth)
+  # ------------------------------------------------------------------
+  if ! grep -q 'port="8090"' "$CORE_CONFIG"; then
+    info "Adding port 8090 input for iTAK (username/password auth)..."
+    sed -i '/<input _name="stdssl"/a\            <input _name="stdssl_auth" protocol="tls" port="8090" auth="file" coreVersion="2"/>' "$CORE_CONFIG"
+    log "Added port 8090 input for iTAK"
+
+    # Open firewall
+    ufw allow 8090/tcp comment "iTAK streaming" 2>/dev/null || true
+    log "Opened port 8090 in firewall"
+  else
+    info "Port 8090 input already present in CoreConfig.xml"
   fi
 
   info "Config: ${CORE_CONFIG}"
