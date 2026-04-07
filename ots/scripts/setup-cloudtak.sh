@@ -11,7 +11,7 @@
 #   2.  Clones the CloudTAK repo
 #   3.  Configures .env (directly, without cloudtak.sh install in --auto)
 #   4.  Verifies .env values (API_URL, PMTILES_URL)
-#   5.  Removes NODE_TLS_REJECT_UNAUTHORIZED (not needed with LE cert)
+#   5.  Ensures NODE_TLS_REJECT_UNAUTHORIZED=0 is set (8443 uses self-signed CA cert)
 #   6.  Remaps media ports (avoids conflict with OTS mediamtx)
 #   7.  Starts CloudTAK containers
 #   8.  Creates nginx reverse proxy config for CloudTAK
@@ -180,7 +180,7 @@ if [[ "$AUTO_MODE" == true ]]; then
       err ".env.example missing in ${INSTALL_DIR}. Verify that CloudTAK was cloned correctly."
     fi
     cp .env.example "$ENV_FILE"
-    SIGNING_SECRET=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 32)
+    SIGNING_SECRET=$(openssl rand -hex 16)
     sed -i "s|^SigningSecret=.*|SigningSecret=${SIGNING_SECRET}|" "$ENV_FILE"
     log ".env created from .env.example with random SigningSecret"
   else

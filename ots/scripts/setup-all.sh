@@ -113,7 +113,7 @@ install_ots() {
     db_pass=$(grep 'SQLALCHEMY_DATABASE_URI' "${OTS_HOME}/ots/config.yml" \
       | sed -n 's|.*://ots:\([^@]*\)@.*|\1|p')
     if [[ -z "$db_pass" ]]; then
-      db_pass=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 20)
+      db_pass=$(openssl rand -hex 10)
       warn "No password found in config.yml, generated random: will update config"
     fi
     # Escape single quotes in password for safe SQL interpolation
