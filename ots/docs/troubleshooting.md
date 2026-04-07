@@ -376,10 +376,10 @@ cat /proc/swaps
 
 ## Deployment-Specific Issues
 
-### HSTS / Certificate Mismatch: "Uses a certificate that is not valid"
+### Certificate Mismatch: "Uses a certificate that is not valid"
 
-**Symptom:** Firefox shows an HSTS security policy error or says the certificate
-is only valid for different domains.
+**Symptom:** Browser shows a certificate error saying the certificate
+is only valid for different domains when visiting the OTS web UI.
 
 **Cause:** Two issues:
 1. **`certbot --nginx`** rewrites ALL nginx SSL configs, including the OTS domain's,
@@ -395,9 +395,10 @@ sudo sed -i 's/server_name opentakserver_443;/server_name <OTS_DOMAIN>;/' /etc/n
 sudo sed -i 's/server_name opentakserver_8443;/server_name <OTS_DOMAIN>;/' /etc/nginx/sites-enabled/ots_https
 sudo sed -i 's/server_name opentakserver_8446;/server_name <OTS_DOMAIN>;/' /etc/nginx/sites-enabled/ots_certificate_enrollment
 
-# 2. Verify that OTS configs point to the correct cert
+# 2. Verify that port 443 block points to LE cert (8443 should keep self-signed CA cert)
 grep ssl_certificate /etc/nginx/sites-enabled/ots_https
-# Should show: /etc/letsencrypt/live/<OTS_DOMAIN>/ (NOT <CLOUDTAK_DOMAIN>)
+# Port 443 block should show: /etc/letsencrypt/live/<OTS_DOMAIN>/
+# Port 8443 block should show: /home/tak/ots/ca/ (self-signed — DO NOT change)
 
 # 3. Test and reload
 sudo nginx -t && sudo systemctl reload nginx
@@ -406,9 +407,6 @@ sudo nginx -t && sudo systemctl reload nginx
 echo | openssl s_client -servername <OTS_DOMAIN> -connect <OTS_DOMAIN>:443 2>/dev/null | openssl x509 -noout -subject
 # Should show: subject=CN=<OTS_DOMAIN>
 ```
-
-**In Firefox:** Clear HSTS cache: History → Show All History → search for your domain
-→ right-click → "Forget About This Site".
 
 > **Prevention (v3.2.0+):** `setup-letsencrypt.sh` fixes `server_name` automatically.
 > `setup-cloudtak.sh` uses `certbot certonly --standalone` instead of `certbot --nginx`.
@@ -460,20 +458,18 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### CloudTAK: "fetch failed" during server configuration
 
-**Cause:** Node.js rejects self-signed cert from OTS.
+**Cause:** Node.js rejects the self-signed CA cert on OTS port 8443.
 
-> **Note (v3.2.0+):** If Let's Encrypt is installed, `NODE_TLS_REJECT_UNAUTHORIZED=0`
-> is NOT needed — LE certs are trusted.
-> `setup-cloudtak.sh` removes this variable automatically.
+Port 8443 uses the server's own CA cert (not Let's Encrypt) for mTLS with
+ATAK/iTAK clients. CloudTAK connects to 8443 and needs `NODE_TLS_REJECT_UNAUTHORIZED=0`
+to trust this cert.
 
 ```bash
-# Check if NODE_TLS exists (should NOT exist with LE certs)
+# Check if NODE_TLS exists (should be set — 8443 uses self-signed CA cert)
 grep NODE_TLS ~/cloudtak/docker-compose.yml
 
-# If the problem persists despite LE certs, check that OTS nginx
-# is using the correct cert:
-echo | openssl s_client -servername <OTS_DOMAIN> -connect <OTS_DOMAIN>:8443 2>/dev/null | openssl x509 -noout -subject
-# Should show: subject=CN=<OTS_DOMAIN> (not <CLOUDTAK_DOMAIN>)
+# If missing, add it to the api service environment in docker-compose.yml:
+#   NODE_TLS_REJECT_UNAUTHORIZED: "0"
 ```
 
 ### OTS MediaMTX blocking CloudTAK media container

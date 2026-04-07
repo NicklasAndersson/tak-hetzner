@@ -8,11 +8,13 @@
 #   1. Installs certbot (if missing)
 #   2. Temporarily stops nginx
 #   3. Obtains Let's Encrypt certificate via standalone challenge
-#   4. Updates nginx config for OTS (certificate enrollment + HTTPS 443 + 8443)
-#      NOTE: Only ssl_certificate/ssl_certificate_key are replaced.
-#      ssl_client_certificate and ssl_verify_client are kept (mTLS).
-#      This resolves the HSTS conflict — Firefox blocks self-signed cert
-#      on other ports if HSTS is active on port 443.
+#   4. Updates nginx config for OTS:
+#      - ots_certificate_enrollment (port 8446) → LE cert
+#      - ots_https port 443 block → LE cert
+#      - ots_https port 8443 block → UNCHANGED (self-signed CA cert for mTLS)
+#      Port 8443 must keep the self-signed cert because ATAK/iTAK clients
+#      verify it against the server's CA. Only native TAK clients connect
+#      to 8443, never browsers, so no HSTS conflict.
 #   5. Starts nginx again
 #   6. Sets up automatic renewal via systemd timer
 #
@@ -142,38 +144,58 @@ sed -i "s|ssl_certificate .*${OTS_CERT}.*|ssl_certificate ${LE_CERT};|" "$CERT_E
 sed -i "s|ssl_certificate_key .*${OTS_KEY}.*|ssl_certificate_key ${LE_KEY};|" "$CERT_ENROLLMENT"
 log "Updated ${CERT_ENROLLMENT}"
 
-# ── 7. Update ots_https (ALL server blocks: 443 + 8443) ──
-# Replace ssl_certificate/ssl_certificate_key with Let's Encrypt in all blocks.
-# ssl_client_certificate and ssl_verify_client are left UNCHANGED (mTLS).
-# This resolves the HSTS conflict: Firefox applies HSTS to all ports
-# for the same domain, so self-signed cert on 8443 is blocked if 443 has HSTS.
+# ── 7. Update ots_https (port 443 only — leave 8443 self-signed for mTLS) ──
+# Only the port 443 server block gets the LE cert.
+# Port 8443 keeps the self-signed CA cert — ATAK/iTAK clients verify it
+# against the server's CA. Browsers never connect to 8443.
 python3 << PYEOF
 import re
 
 with open("${HTTPS_CONFIG}", "r") as f:
     content = f.read()
 
-# Replace ssl_certificate and ssl_certificate_key in ALL server blocks.
-# Matches lines with OTS self-signed cert paths.
-# NOT ssl_client_certificate (it should be kept for mTLS).
+# Parse into server blocks and only update the 443 block.
+# We find "listen 443" vs "listen 8443" to identify which block we're in.
 lines = content.split('\n')
 result = []
+in_443_block = False
+brace_depth = 0
 
 for line in lines:
     stripped = line.strip()
-    # Replace server cert (ssl_certificate, not ssl_client_certificate)
-    if stripped.startswith('ssl_certificate ') and '${OTS_CERT}' in line:
-        indent = line[:len(line) - len(line.lstrip())]
-        line = f'{indent}ssl_certificate ${LE_CERT};'
-    elif stripped.startswith('ssl_certificate_key') and '${OTS_KEY}' in line:
-        indent = line[:len(line) - len(line.lstrip())]
-        line = f'{indent}ssl_certificate_key ${LE_KEY};'
+
+    # Track server blocks by brace depth
+    if stripped.startswith('server') and '{' in stripped:
+        brace_depth = 1
+        in_443_block = False  # reset, will detect on listen line
+        result.append(line)
+        continue
+    elif brace_depth > 0:
+        brace_depth += stripped.count('{') - stripped.count('}')
+        if brace_depth <= 0:
+            in_443_block = False
+
+    # Detect which server block we're in
+    if stripped.startswith('listen') and '443' in stripped and '8443' not in stripped:
+        in_443_block = True
+    elif stripped.startswith('listen') and '8443' in stripped:
+        in_443_block = False
+
+    # Only replace certs in the 443 block
+    if in_443_block:
+        if stripped.startswith('ssl_certificate ') and '${OTS_CERT}' in line:
+            indent = line[:len(line) - len(line.lstrip())]
+            line = f'{indent}ssl_certificate ${LE_CERT};'
+        elif stripped.startswith('ssl_certificate_key') and '${OTS_KEY}' in line:
+            indent = line[:len(line) - len(line.lstrip())]
+            line = f'{indent}ssl_certificate_key ${LE_KEY};'
+
     result.append(line)
 
 with open("${HTTPS_CONFIG}", "w") as f:
     f.write('\n'.join(result))
 PYEOF
-log "Updated ${HTTPS_CONFIG} (port 443 + 8443 — LE server cert, mTLS preserved)"
+log "Updated ${HTTPS_CONFIG} (port 443 → LE cert, port 8443 → unchanged self-signed)"
 
 # ── 8. Test nginx config ──
 echo ""
@@ -186,32 +208,7 @@ if ! nginx -t 2>&1; then
 fi
 log "nginx config OK"
 
-# ── 9. Re-add HSTS now that we have valid LE certs ──
-# HSTS was removed in setup-all.sh to avoid Firefox caching
-# HSTS with self-signed cert. Now that LE certs are in place it's safe.
-python3 << HSTS_PYEOF
-import re
-
-for config_path in ["${CERT_ENROLLMENT}", "${HTTPS_CONFIG}"]:
-    with open(config_path, "r") as f:
-        content = f.read()
-    # Check if HSTS already exists
-    if "Strict-Transport-Security" in content:
-        continue
-    # Add HSTS after the ssl_certificate_key line in each server block
-    lines = content.split("\n")
-    result = []
-    for line in lines:
-        result.append(line)
-        if line.strip().startswith("ssl_certificate_key") and line.strip().endswith(";"):
-            indent = line[:len(line) - len(line.lstrip())]
-            result.append(f'{indent}add_header Strict-Transport-Security "max-age=63072000" always;')
-    with open(config_path, "w") as f:
-        f.write("\n".join(result))
-HSTS_PYEOF
-log "HSTS headers restored (valid LE certs)"
-
-# ── 10. Start nginx ──
+# ── 9. Start nginx ──
 systemctl start nginx
 log "nginx started"
 
@@ -224,7 +221,7 @@ else
   log "certbot auto-renewal timer enabled"
 fi
 
-# ── 11. Renewal hooks (standalone requires stopping nginx) ──
+# ── 10. Renewal hooks (standalone requires stopping nginx) ──
 HOOK_PRE="/etc/letsencrypt/renewal-hooks/pre/stop-nginx.sh"
 HOOK_POST="/etc/letsencrypt/renewal-hooks/post/start-nginx.sh"
 mkdir -p /etc/letsencrypt/renewal-hooks/{pre,post}
@@ -258,12 +255,11 @@ echo " Key:       ${LE_KEY}"
 echo " Backup:    ${BACKUP_DIR}"
 echo ""
 echo " Changed files:"
-echo "   - ${CERT_ENROLLMENT}"
-echo "   - ${HTTPS_CONFIG} (port 443 + 8443)"
+echo "   - ${CERT_ENROLLMENT} (port 8446 → LE cert)"
+echo "   - ${HTTPS_CONFIG} (port 443 → LE cert, port 8443 → unchanged)"
 echo ""
 echo " Auto-renewal: certbot.timer (every 12 hours)"
 echo ""
-echo " HSTS-fix:"
-echo "   Port 8443 now uses LE server cert (resolves HSTS blocking)"
-echo "   mTLS (ssl_client_certificate + ssl_verify_client) preserved"
+echo " Port 8443 keeps self-signed CA cert (mTLS for ATAK/iTAK)."
+echo " Users enroll via QR code or data package, not the web UI."
 echo "============================================"

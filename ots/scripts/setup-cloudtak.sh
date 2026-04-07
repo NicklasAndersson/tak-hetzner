@@ -180,7 +180,7 @@ if [[ "$AUTO_MODE" == true ]]; then
       err ".env.example missing in ${INSTALL_DIR}. Verify that CloudTAK was cloned correctly."
     fi
     cp .env.example "$ENV_FILE"
-    SIGNING_SECRET=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 32)
+    SIGNING_SECRET=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 32)
     sed -i "s|^SigningSecret=.*|SigningSecret=${SIGNING_SECRET}|" "$ENV_FILE"
     log ".env created from .env.example with random SigningSecret"
   else
@@ -241,16 +241,15 @@ else
   warn ".env missing — check step 3"
 fi
 
-# ── 5. Remove NODE_TLS_REJECT_UNAUTHORIZED if present ──
-# OTS now uses Let's Encrypt server cert on 8443 (instead of self-signed).
-# Therefore NODE_TLS_REJECT_UNAUTHORIZED=0 is unnecessary and a security risk.
+# ── 5. Ensure NODE_TLS_REJECT_UNAUTHORIZED=0 is set ──
+# OTS port 8443 uses the self-signed CA cert (not LE). CloudTAK connects to
+# 8443 and needs to trust that cert. NODE_TLS_REJECT_UNAUTHORIZED=0 is required.
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 if [[ -f "$COMPOSE_FILE" ]]; then
   if grep -q 'NODE_TLS_REJECT_UNAUTHORIZED' "$COMPOSE_FILE"; then
-    sed -i '/NODE_TLS_REJECT_UNAUTHORIZED/d' "$COMPOSE_FILE"
-    log "NODE_TLS_REJECT_UNAUTHORIZED removed from docker-compose.yml (LE cert trusted)"
+    log "NODE_TLS_REJECT_UNAUTHORIZED already set in docker-compose.yml"
   else
-    log "NODE_TLS_REJECT_UNAUTHORIZED not present in docker-compose.yml (correct)"
+    warn "NODE_TLS_REJECT_UNAUTHORIZED not found in docker-compose.yml — CloudTAK may reject OTS 8443 cert"
   fi
 fi
 
@@ -664,6 +663,6 @@ echo "   ./cloudtak.sh start|stop|update|backup"
 echo ""
 echo " Technical details:"
 echo "   - webtak URL: http://${OTS_DOMAIN}:8080 (OAuth)"
-echo "   - api/url:    https://${OTS_DOMAIN}:8443 (mTLS, LE server cert)"
+echo "   - api/url:    https://${OTS_DOMAIN}:8443 (mTLS, CA cert)"
 echo "   - OTS nginx /oauth proxy added"
 echo "============================================"

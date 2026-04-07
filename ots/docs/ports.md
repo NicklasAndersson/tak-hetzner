@@ -17,7 +17,7 @@ All ports below are opened automatically by cloud-init.
 | Port | Proto | Service | Direction | Comment |
 |------|-------|---------|-----------|---------|
 | 8080 | TCP | Nginx → OTS | Inbound | HTTP API + OAuth proxy |
-| 8443 | TCP | Nginx → OTS | Inbound | HTTPS API + WebUI (mTLS, client cert required, LE server cert) |
+| 8443 | TCP | Nginx → OTS | Inbound | HTTPS API + WebUI (mTLS, client cert required, self-signed CA cert) |
 | 8446 | TCP | Nginx → OTS | Inbound | Certificate enrollment (LE server cert) |
 | 8088 | TCP | OTS | Inbound | TCP CoT streaming (unencrypted) |
 | 8089 | TCP | OTS | Inbound | SSL CoT streaming (encrypted) |
@@ -83,10 +83,10 @@ These ports should **never** be exposed externally:
 
 ## Security Notes
 
-- **HSTS fix:** Ports 8443 and 8446 use Let's Encrypt server certs. Firefox applies HSTS to all ports for a domain — self-signed certs on 8443 are blocked if 443 has HSTS. mTLS (`ssl_client_certificate` + `ssl_verify_client`) is preserved.
+- **Port 8443 keeps self-signed CA cert:** ATAK/iTAK clients verify the server cert against the CA that signed their client cert. Only native TAK clients connect to 8443 — browsers never do. Users enroll via QR code or data package, not the OTS web UI. No HSTS is set on the OTS domain, so the self-signed cert on 8443 doesn't conflict.
 - **server_name fix:** OTS sets `server_name opentakserver_443` etc. — `setup-letsencrypt.sh` fixes this to the real domain name so nginx serves the correct cert.
 - **certbot --standalone:** CloudTAK uses `certbot certonly --standalone` (not `--nginx`) to avoid certbot rewriting OTS nginx configs.
-- **NODE_TLS_REJECT_UNAUTHORIZED:** Not needed — CloudTAK trusts LE certs on 8443.
+- **NODE_TLS_REJECT_UNAUTHORIZED=0:** Needed in CloudTAK's docker-compose.yml — CloudTAK connects to OTS on 8443 which has the self-signed CA cert.
 - **MinIO (9000, 9002):** Not opened by cloud-init — no external access needed.
 - **PostGIS (5433):** Not opened by cloud-init — Docker-internal only.
 - **RabbitMQ (5672, 25672):** Not opened — internal message queue.

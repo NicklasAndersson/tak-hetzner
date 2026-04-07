@@ -113,31 +113,24 @@ install_ots() {
     db_pass=$(grep 'SQLALCHEMY_DATABASE_URI' "${OTS_HOME}/ots/config.yml" \
       | sed -n 's|.*://ots:\([^@]*\)@.*|\1|p')
     if [[ -z "$db_pass" ]]; then
-      db_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20)
+      db_pass=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 20)
       warn "No password found in config.yml, generated random: will update config"
     fi
-    sudo -u postgres psql -c "CREATE USER ots WITH PASSWORD '${db_pass}';"
+    # Escape single quotes in password for safe SQL interpolation
+    local escaped_pass="${db_pass//\'/\'\'}"
+    sudo -u postgres psql -c "CREATE USER ots WITH PASSWORD '${escaped_pass}';"
     sudo -u postgres psql -c "CREATE DATABASE ots OWNER ots;"
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ots TO ots;"
     log "PostgreSQL user and database created"
+    # OTS has been crash-looping without PG access — restart it now so
+    # the API is reachable for later steps (CloudTAK, ADS-B).
+    systemctl restart opentakserver
+    log "OTS restarted after PostgreSQL fix"
   else
     log "PostgreSQL user 'ots' exists"
   fi
 }
 run_step "OTS" "critical" install_ots
-
-# ── 2b. Remove HSTS headers temporarily ──
-# OTS nginx sends Strict-Transport-Security with self-signed cert.
-# Firefox caches HSTS and then blocks all access if the cert is not
-# trusted. We strip HSTS here and restore it after LE cert.
-info "Removing HSTS headers temporarily (self-signed cert)..."
-for conf in /etc/nginx/sites-enabled/ots_*; do
-  if [[ -f "$conf" ]]; then
-    sed -i '/add_header.*Strict-Transport-Security/d' "$conf"
-  fi
-done
-systemctl reload nginx 2>/dev/null || true
-log "HSTS removed (will be restored after LE installation)"
 
 # ── 3. Wait for OTS API ──
 info "Waiting for OTS API (port 8081, max 240s)..."
