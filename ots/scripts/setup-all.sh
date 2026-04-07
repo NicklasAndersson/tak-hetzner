@@ -129,6 +129,10 @@ install_ots() {
   else
     log "PostgreSQL user 'ots' exists"
   fi
+
+  # Ensure directories that OTS expects but doesn't always create
+  mkdir -p "${OTS_HOME}/ots/packages"
+  chown "$OTS_USER:$OTS_USER" "${OTS_HOME}/ots/packages"
 }
 run_step "OTS" "critical" install_ots
 
