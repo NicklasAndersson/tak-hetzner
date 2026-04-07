@@ -124,11 +124,11 @@ tail -f /var/log/tak-setup.log
 │  │                      │   │  │ API │ │Events│ │  Tiles  │  │ │
 │  │  - CoT routing       │   │  │:5000│ │:5003 │ │  :5002  │  │ │
 │  │  - Cert enrollment   │   │  └──┬──┘ └──────┘ └─────────┘  │ │
-│  │  - WebUI (:8443)     │   │     │                           │ │
+│  │  - Admin GUI (:443)   │   │     │                           │ │
 │  │  - TCP/SSL streaming │   │  ┌──┴──┐  ┌──────┐ ┌────────┐  │ │
 │  │                      │   │  │Post │  │MinIO │ │MediaMTX│  │ │
 │  │  Nginx (proxy)       │   │  │GIS  │  │:9000 │ │ :9997  │  │ │
-│  │  :80 :8080 :8443     │   │  │:5433│  └──────┘ └────────┘  │ │
+│  │  :80 :443 :8080      │   │  │:5433│  └──────┘ └────────┘  │ │
 │  │  :8446               │   │  └─────┘                        │ │
 │  └──────────────────────┘   └─────────────────────────────────┘ │
 │                                                                 │
@@ -225,7 +225,7 @@ See [docs/ports.md](docs/ports.md) for the complete port reference.
 | 22 | SSH | Remote access |
 | 80/443 | Nginx | HTTP/HTTPS |
 | 8080 | Nginx → OTS | HTTP API + OAuth |
-| 8443 | Nginx → OTS | HTTPS API + WebUI (mTLS) |
+| 8443 | Nginx → OTS | HTTPS API (mTLS, TAK clients only) |
 | 8446 | Nginx → OTS | Certificate enrollment |
 | 8088 | OTS | TCP CoT streaming |
 | 8089 | OTS | SSL CoT streaming |
@@ -253,7 +253,7 @@ See [docs/ports.md](docs/ports.md) for the complete port reference.
 
 Open `https://<CLOUDTAK_DOMAIN>` in your browser.
 
-OTS WebUI: `https://<OTS_DOMAIN>:8443`
+OTS Admin GUI: `https://<OTS_DOMAIN>/` (port 443, username/password login)
 
 ---
 
@@ -308,7 +308,7 @@ CloudTAK requires three URLs to communicate with OTS:
 
 | Parameter | URL | Purpose |
 |-----------|-----|---------|
-| `url` / `api` | `https://<OTS_DOMAIN>:8443` | Marti API (mTLS with client cert) |
+| `url` / `api` | `https://<OTS_DOMAIN>:8443` | Marti API (mTLS, TAK client cert required) |
 | `webtak` | `http://<OTS_DOMAIN>:8080` | OAuth login (no client cert) |
 
 > **Why different ports?** Port 8443 requires `ssl_verify_client on` (mTLS) —

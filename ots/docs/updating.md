@@ -162,7 +162,7 @@ sudo cat /var/log/unattended-upgrades/unattended-upgrades.log
 
 ## Post-Update Checklist
 
-- [ ] OTS WebUI responds: `https://<OTS_DOMAIN>:8443`
+- [ ] OTS Admin GUI responds: `https://<OTS_DOMAIN>/`
 - [ ] CloudTAK responds: `https://<CLOUDTAK_DOMAIN>`
 - [ ] Correct cert is served: `echo | openssl s_client -servername <OTS_DOMAIN> -connect <OTS_DOMAIN>:443 2>/dev/null | openssl x509 -noout -subject`
 - [ ] ATAK can connect (TCP `:8088` or SSL `:8089`)

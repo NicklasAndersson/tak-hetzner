@@ -86,7 +86,7 @@ sudo chage -d today -M 99999 tak
 sudo chage -d today -M 99999 root
 ```
 
-### Can't reach WebUI (:8443)
+### Can't reach Admin GUI (port 443)
 
 ```bash
 # Check nginx
@@ -94,11 +94,11 @@ sudo systemctl status nginx
 sudo nginx -t
 sudo tail -20 /var/log/nginx/error.log
 
-# Check that OTS is listening on 8081
+# Check that OTS is listening on 8081 (nginx proxies 443 → 8081)
 ss -tlnp | grep 8081
 
 # Check UFW
-sudo ufw status | grep 8443
+sudo ufw status | grep 443
 ```
 
 ### ATAK can't connect
