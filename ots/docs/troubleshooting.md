@@ -58,6 +58,34 @@ cat ~/ots/config.yml
 opentakserver
 ```
 
+### OTS crash-loop: PostgreSQL auth failure
+
+If OTS logs show `FATAL: password authentication failed for user "ots"`, the
+PostgreSQL user/database was not created during installation. This can happen
+when the OTS installer runs non-interactively (piped input, patched `/dev/tty`).
+
+```bash
+# Check application log
+tail -30 ~/ots/logs/opentakserver.log
+
+# Get the password from config
+grep SQLALCHEMY_DATABASE_URI ~/ots/config.yml
+
+# Create the user and database (replace PASSWORD with the one from config)
+sudo -u postgres psql -c "CREATE USER ots WITH PASSWORD 'PASSWORD';"
+sudo -u postgres psql -c "CREATE DATABASE ots OWNER ots;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ots TO ots;"
+sudo systemctl restart opentakserver
+```
+
+### sudo: Account or password is expired
+
+Ubuntu 24.04's `chpasswd` marks passwords as immediately expired. Fix:
+```bash
+sudo chage -d today -M 99999 tak
+sudo chage -d today -M 99999 root
+```
+
 ### Can't reach WebUI (:8443)
 
 ```bash

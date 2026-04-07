@@ -516,6 +516,21 @@ for i in {1..30}; do
   sleep 2
 done
 
+# Wait for OTS API (port 8081) — may still be starting after restart
+info "Waiting for OTS API (port 8081, max 120s)..."
+OTS_API_READY=false
+for i in {1..60}; do
+  if curl -sf http://localhost:8081/api/health > /dev/null 2>&1; then
+    log "OTS API responding on :8081"
+    OTS_API_READY=true
+    break
+  fi
+  sleep 2
+done
+if [[ "$OTS_API_READY" != true ]]; then
+  err "OTS API not responding on :8081 after 120s — cannot configure CloudTAK"
+fi
+
 info "Generating client certificate for ${OTS_USERNAME}..."
 
 CONFIG_RESULT=$(python3 << PYEOF

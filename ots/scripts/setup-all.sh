@@ -80,7 +80,11 @@ echo "" | tee -a "$LOG"
 
 # ── 1. Set password for the tak user ──
 echo "tak:tak" | chpasswd
-log "Password set for the tak user"
+# Prevent password expiry — Ubuntu 24.04 chpasswd marks passwords as
+# immediately expired which breaks non-interactive sudo later.
+chage -d today -M 99999 "$OTS_USER"
+chage -d today -M 99999 root
+log "Password set for the tak user (expiry disabled)"
 
 # ── 2. Install OpenTAK Server (CRITICAL) ──
 install_ots() {
@@ -98,6 +102,27 @@ install_ots() {
     return $rc
   fi
   log "OpenTAK Server installed"
+
+  # The OTS installer creates a PostgreSQL user + database but the
+  # non-interactive install (piped input, patched /dev/tty) sometimes
+  # skips the database setup. Verify and create if missing.
+  info "Verifying PostgreSQL user and database..."
+  if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='ots'" | grep -q 1; then
+    warn "PostgreSQL user 'ots' missing — creating..."
+    local db_pass
+    db_pass=$(grep 'SQLALCHEMY_DATABASE_URI' "${OTS_HOME}/ots/config.yml" \
+      | sed -n 's|.*://ots:\([^@]*\)@.*|\1|p')
+    if [[ -z "$db_pass" ]]; then
+      db_pass=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 20)
+      warn "No password found in config.yml, generated random: will update config"
+    fi
+    sudo -u postgres psql -c "CREATE USER ots WITH PASSWORD '${db_pass}';"
+    sudo -u postgres psql -c "CREATE DATABASE ots OWNER ots;"
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ots TO ots;"
+    log "PostgreSQL user and database created"
+  else
+    log "PostgreSQL user 'ots' exists"
+  fi
 }
 run_step "OTS" "critical" install_ots
 

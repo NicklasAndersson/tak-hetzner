@@ -85,12 +85,19 @@ log "Radius OK: ${ADSB_RADIUS} nm"
 echo ""
 echo "Updating ${CONFIG_FILE}..."
 
-# Backup
-sudo cp "${CONFIG_FILE}" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+# Backup — use cp directly if already root, otherwise sudo
+if [[ $EUID -eq 0 ]]; then
+  cp "${CONFIG_FILE}" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+else
+  sudo cp "${CONFIG_FILE}" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+fi
 log "Backup created"
 
 # Use python3 + PyYAML for safe YAML handling
-sudo python3 << PYEOF
+# Run as root if already root, otherwise use sudo
+MAYBE_SUDO=""
+[[ $EUID -ne 0 ]] && MAYBE_SUDO="sudo"
+$MAYBE_SUDO python3 << PYEOF
 import yaml
 import sys
 
@@ -133,9 +140,9 @@ log "ADS-B scheduled job enabled"
 # ── 4. Restart OTS + cot_parser ──
 echo ""
 echo "Restarting OpenTAK Server + cot_parser..."
-sudo systemctl restart opentakserver
-if sudo systemctl is-active --quiet cot_parser 2>/dev/null; then
-  sudo systemctl restart cot_parser
+$MAYBE_SUDO systemctl restart opentakserver
+if $MAYBE_SUDO systemctl is-active --quiet cot_parser 2>/dev/null; then
+  $MAYBE_SUDO systemctl restart cot_parser
   log "cot_parser restarted"
 fi
 log "OTS restarted"
