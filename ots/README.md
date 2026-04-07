@@ -158,6 +158,9 @@ tail -f /var/log/tak-setup.log
 | `scripts/setup-cloudtak.sh` | CloudTAK integration with OTS (clone, nginx, certbot, server config) |
 | `scripts/setup-adsb.sh` | ADS-B flight tracking via Airplanes.live |
 | `scripts/setup-all.sh` | Orchestrates all setup scripts (called by cloud-init) |
+| `scripts/provision-users.sh` | Create OTS users from `users.csv` and print login instructions |
+| `users.csv` | User list for provisioning (gitignored) |
+| `users.csv.example` | Example user list — safe to share |
 | `docs/ports.md` | Complete port reference |
 | `docs/dns.md` | DNS configuration guide |
 | `docs/updating.md` | How to update components |
@@ -254,6 +257,48 @@ See [docs/ports.md](docs/ports.md) for the complete port reference.
 Open `https://<CLOUDTAK_DOMAIN>` in your browser.
 
 OTS Admin GUI: `https://<OTS_DOMAIN>/` (port 443, username/password login)
+
+---
+
+## User Provisioning
+
+Create OTS users from a CSV file:
+
+```bash
+# On the server
+ssh tak@<OTS_DOMAIN>
+bash /opt/scripts/provision-users.sh
+
+# Or locally (if you have SSH tunnel to port 8081)
+OTS_HOST=localhost:8081 ./scripts/provision-users.sh
+```
+
+This reads `users.csv`, creates each user with a random password, assigns groups,
+and prints login instructions:
+
+```
+============================================================
+  OTS Login Instructions
+============================================================
+
+  Admin GUI:  https://tak.example.com/
+
+------------------------------------------------------------
+
+  Name:     Anna Svensson
+  Username: anna
+  Password: Abc123xyzDEF4567
+  Status:   created
+  ---
+
+------------------------------------------------------------
+  2 created, 2 total
+============================================================
+```
+
+Passwords are saved to `enrollment-output/passwords.csv`.
+
+See `users.csv.example` for the CSV format.
 
 ---
 

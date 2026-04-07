@@ -1,0 +1,4 @@
+Name;Username;Groups;IN Groups;OUT Groups
+Anna Svensson;anna;blue_team;;
+Erik Nilsson;erik;blue_team;;
+Maria Lindberg;maria;blue_team,medics;judges;incidents
