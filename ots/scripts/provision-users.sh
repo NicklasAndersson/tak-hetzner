@@ -54,7 +54,7 @@ if [[ ! -f "$CSV_FILE" ]]; then
   exit 1
 fi
 
-OUTPUT_DIR="${REPO_DIR}/enrollment-output"
+OUTPUT_DIR="${OUTPUT_DIR:-${REPO_DIR}/enrollment-output}"
 mkdir -p "$OUTPUT_DIR"
 PASSWORD_FILE="${OUTPUT_DIR}/passwords.csv"
 
@@ -65,7 +65,7 @@ generate_password() {
 
 # --- Python provisioning script ---
 provision() {
-  python3 << 'PYEOF' "$CSV_FILE" "$OTS_ADDRESS" "$OTS_ADMIN" "$OTS_PASSWORD" "$PASSWORD_FILE"
+  python3 - "$CSV_FILE" "$OTS_ADDRESS" "$OTS_ADMIN" "$OTS_PASSWORD" "$PASSWORD_FILE" << 'PYEOF'
 import csv
 import json
 import sys
@@ -140,8 +140,12 @@ if all_groups:
     r = s.get(f"{address}/api/groups/all")
     existing_groups = set()
     if r.status_code == 200:
-        for g in r.json().get('results', []):
-            existing_groups.add(g.get('name', ''))
+        data = r.json()
+        # API may return a list directly or {"results": [...]}
+        group_list = data if isinstance(data, list) else data.get('results', [])
+        for g in group_list:
+            name = g.get('name', '') if isinstance(g, dict) else str(g)
+            existing_groups.add(name)
 
     for group in sorted(all_groups):
         if group not in existing_groups:
@@ -158,7 +162,7 @@ for u in users:
     password = generate_password()
 
     r = s.post(f"{address}/api/user/add",
-        json={"username": username, "password": password})
+        json={"username": username, "password": password, "confirm_password": password, "roles": ["user"]})
 
     if r.status_code in (200, 201):
         status = "created"
