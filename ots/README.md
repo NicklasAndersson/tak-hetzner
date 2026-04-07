@@ -47,7 +47,7 @@ At your DNS provider (e.g. Cloudflare), create three A records pointing to the P
 
 ```bash
 # Clone the repo
-git clone <this-repo> && cd tak
+git clone <this-repo> && cd tak/ots
 
 # Copy example config and fill in your values
 cp config.env.example config.env
@@ -55,6 +55,7 @@ cp config.env.example config.env
 # Edit config.env:
 #   - Set your domains (from step 2)
 #   - Paste your SSH public key
+#   - Set Hetzner settings (server type, location, primary IP name)
 #   - Set ADS-B coordinates (optional)
 vim config.env
 
@@ -62,9 +63,20 @@ vim config.env
 ./build.sh
 ```
 
-### 4. Create Server with cloud-init
+### 4. Deploy
 
-**Via Hetzner Cloud Console:**
+**One-command deployment (recommended):**
+
+```bash
+./deploy.sh
+```
+
+This handles everything automatically:
+1. Generates `cloud-init.yaml` from template
+2. Creates a Hetzner server with your pre-allocated primary IP
+3. Waits for cloud-init to finish (OTS + CloudTAK + ADS-B)
+
+**Via Hetzner Cloud Console (manual):**
 
 1. Go to **Servers → Create Server**
 2. Choose **Location** matching your Primary IP
@@ -141,6 +153,7 @@ tail -f /var/log/tak-setup.log
 | `config.env.example` | Example configuration — safe to share |
 | `config.env` | Your configuration with real values (gitignored) |
 | `build.sh` | Generates `cloud-init.yaml` from template + config |
+| `deploy.sh` | One-command deployment — builds cloud-init, creates Hetzner server, waits for completion |
 | `scripts/setup-letsencrypt.sh` | Let's Encrypt automation for OTS nginx |
 | `scripts/setup-cloudtak.sh` | CloudTAK integration with OTS (clone, nginx, certbot, server config) |
 | `scripts/setup-adsb.sh` | ADS-B flight tracking via Airplanes.live |
