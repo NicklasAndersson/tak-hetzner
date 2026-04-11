@@ -202,6 +202,17 @@ info "Uploading ${TAK_ZIP_FILENAME} ($(du -h "$ZIP_PATH" | cut -f1))..."
 scp $SSH_OPTS "$ZIP_PATH" "tak@${PRIMARY_IP_ADDR}:/opt/tak-installer/takserver.zip"
 log "TAK Server zip uploaded"
 
+# Upload provisioning scripts (too large for cloud-init's 32 KB limit)
+info "Uploading provisioning scripts..."
+for f in "${SCRIPT_DIR}/scripts/provision-users.sh" "${SCRIPT_DIR}/generate-enrollment-pdf.py" "${SCRIPT_DIR}/patch-main.py"; do
+  if [[ -f "$f" ]]; then
+    fname="$(basename "$f")"
+    scp $SSH_OPTS "$f" "tak@${PRIMARY_IP_ADDR}:/tmp/${fname}"
+    ssh $SSH_OPTS "tak@${PRIMARY_IP_ADDR}" "sudo mv /tmp/${fname} /opt/scripts/${fname} && sudo chmod +x /opt/scripts/${fname}"
+    log "Uploaded ${fname}"
+  fi
+done
+
 # Upload users.csv for mass enrollment (optional)
 if [[ -f "${SCRIPT_DIR}/users.csv" ]]; then
   info "Uploading users.csv for mass enrollment..."
@@ -218,13 +229,14 @@ info "This takes 5-10 minutes (extract, build Docker image, generate certs, star
 
 ssh $SSH_OPTS "tak@${PRIMARY_IP_ADDR}" "sudo bash /opt/scripts/setup-all.sh"
 
-# Download enrollment PDF if users were enrolled
+# Download enrollment artifacts if users were provisioned
 if [[ -f "${SCRIPT_DIR}/users.csv" ]]; then
-  info "Downloading enrollment PDF..."
-  if scp $SSH_OPTS "tak@${PRIMARY_IP_ADDR}:/opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf" "${SCRIPT_DIR}/enrollment-slips.pdf" 2>/dev/null; then
-    log "Enrollment PDF saved to ${SCRIPT_DIR}/enrollment-slips.pdf"
+  info "Downloading enrollment artifacts..."
+  mkdir -p "${SCRIPT_DIR}/enrollment-output"
+  if scp -r $SSH_OPTS "tak@${PRIMARY_IP_ADDR}:~/enrollment-output/" "${SCRIPT_DIR}/enrollment-output/" 2>/dev/null; then
+    log "Enrollment artifacts saved to ${SCRIPT_DIR}/enrollment-output/"
   else
-    warn "Enrollment PDF not found — enrollment may have been skipped"
+    warn "Enrollment artifacts not found — provisioning may have been skipped"
   fi
 fi
 
@@ -246,7 +258,8 @@ info "  scp tak@${TAK_DOMAIN}:~/certs/admin.p12 ."
 echo ""
 info "Enroll users:"
 info "  scp users.csv tak@${TAK_DOMAIN}:/tmp/"
-info "  ssh tak@${TAK_DOMAIN} 'sudo /opt/tak-enrollment/enroll.sh /tmp/users.csv'"
+info "  ssh tak@${TAK_DOMAIN} 'sudo /opt/tak-enrollment/provision.sh /tmp/users.csv'"
+info "  scp -r tak@${TAK_DOMAIN}:~/enrollment-output/ ."
 echo ""
 info "View logs:"
 info "  ssh tak@${TAK_DOMAIN} 'cat /var/log/tak-setup.log'"

@@ -4,8 +4,9 @@
 Each user gets one page with:
   - Name, username, password (if available)
   - ATAK QR code (left) — auto-enrolls with embedded password
-  - iTAK QR code (right) — server connection, manual login
+  - iTAK QR code (right) — server connection info
   - Setup instructions for both apps
+  - iTAK data package import instructions
 
 Usage:
   python generate-enrollment-pdf.py <users.csv> [passwords.csv]
@@ -14,18 +15,19 @@ If passwords.csv is not specified, looks for it next to users.csv.
 TAK_DOMAIN is read from config.env, environment, or defaults to config.
 
 ATAK QR: tak://com.atakmap.app/enroll?host=<domain>&username=<user>&token=<password>
-iTAK QR: Name,Address,Port,Protocol
+iTAK QR: Name,Address,Port,Protocol (port 8089 mTLS)
 
-Requires: fpdf2, requests
+Requires: fpdf2, qrcode, Pillow
 """
 
 import csv
+import io
 import os
 import sys
 import tempfile
 from urllib.parse import quote
 
-import requests
+import qrcode
 from fpdf import FPDF
 
 
@@ -42,30 +44,17 @@ def load_config_env():
 
 
 # Config
-TAK_DOMAIN = os.environ.get("TAK_DOMAIN") or load_config_env() or "tak.hv-sog.se"
-TAK_PORT = "8090"
+TAK_DOMAIN = os.environ.get("TAK_DOMAIN") or load_config_env() or "tak.example.com"
+TAK_PORT = "8089"
 TAK_PROTOCOL = "ssl"
-QR_API = "https://qr.wwn.se/api/qr"
-QR_SIZE = 400
 OUTPUT_FILE = "enrollment-slips.pdf"
 
 
-def get_qr_image(data: str) -> bytes:
-    """Fetch QR code PNG from API."""
-    resp = requests.get(
-        QR_API,
-        params={"data": data, "size": QR_SIZE, "format": "png"},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.content
-
-
 def write_qr_temp(data: str) -> str:
-    """Generate QR and write to temp file, return path."""
-    qr_png = get_qr_image(data)
+    """Generate QR code PNG locally, write to temp file, return path."""
+    img = qrcode.make(data, box_size=10, border=2)
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.write(qr_png)
+    img.save(tmp, format="PNG")
     tmp.close()
     return tmp.name
 
@@ -118,7 +107,7 @@ def main():
         name = user["name"]
         pw = passwords.get(username)
 
-        # iTAK QR data: Name,Address,Port,Protocol
+        # iTAK QR data: Name,Address,Port,Protocol (port 8089 mTLS)
         itak_server_name = f"{name} - {TAK_DOMAIN}"
         itak_qr_data = f"{itak_server_name},{TAK_DOMAIN},{TAK_PORT},{TAK_PROTOCOL}"
 
@@ -215,11 +204,11 @@ def main():
             pdf.cell(col_w, 7, "iTAK", align="C", ln=True)
             pdf.set_font("Helvetica", "", 9)
             itak_steps = [
-                "1. Open iTAK > Settings gear",
-                "2. Network > Servers > +",
-                "3. Tap QR Code icon",
-                "4. Scan the right code",
-                "5. Enter username + password",
+                "1. Import data package (.zip) via",
+                "   AirDrop/email/Files app",
+                "2. Open with iTAK",
+                "3. Certificate + server auto-configure",
+                "4. Or: scan QR + import cert manually",
             ]
             for line in itak_steps:
                 pdf.set_x(margin + col_w)
@@ -228,10 +217,10 @@ def main():
             pdf.cell(0, 7, "iTAK", align="C", ln=True)
             pdf.set_font("Helvetica", "", 9)
             for line in [
-                "1. Open iTAK > Settings gear",
-                "2. Network > Servers > +",
-                "3. Tap QR Code icon and scan",
-                "4. Enter username + password",
+                "1. Import data package (.zip) via AirDrop/email",
+                "2. Open with iTAK",
+                "3. Certificate + server auto-configure",
+                "4. Or: scan QR + import cert manually",
             ]:
                 pdf.cell(0, 5, line, ln=True, align="L")
 
@@ -239,7 +228,7 @@ def main():
         pdf.set_y(-20)
         pdf.set_font("Helvetica", "I", 8)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 5, f"Server: {TAK_DOMAIN}  |  SSL: {TAK_PORT}  |  Enrollment: 8446", ln=True, align="C")
+        pdf.cell(0, 5, f"Server: {TAK_DOMAIN}  |  mTLS: {TAK_PORT}  |  Enrollment: 8446", ln=True, align="C")
         pdf.set_text_color(0, 0, 0)
 
         # Cleanup temp files

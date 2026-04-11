@@ -26,7 +26,7 @@ OTS_HOME="/home/${OTS_USER}"
 
 # Step status (0=OK, 1=FAIL, 2=SKIP)
 declare -A STEP_STATUS
-STEPS=("OTS" "LE-OTS" "CloudTAK" "ADS-B" "MOTD")
+STEPS=("OTS" "LE-OTS" "CloudTAK" "Portal" "ADS-B" "MapProxy" "Maps" "MOTD")
 for s in "${STEPS[@]}"; do STEP_STATUS[$s]=2; done
 
 # Colors
@@ -73,6 +73,7 @@ echo "============================================" | tee -a "$LOG"
 echo " TAK Server — Automatic installation" | tee -a "$LOG"
 echo " OTS:      ${OTS_DOMAIN}" | tee -a "$LOG"
 echo " CloudTAK: ${CLOUDTAK_DOMAIN}" | tee -a "$LOG"
+echo " Portal:   ${PORTAL_DOMAIN}" | tee -a "$LOG"
 echo " Tiles:    ${TILES_DOMAIN}" | tee -a "$LOG"
 echo " ADS-B:    ${ADSB_LAT}, ${ADSB_LON}" | tee -a "$LOG"
 echo "============================================" | tee -a "$LOG"
@@ -167,7 +168,15 @@ step_cloudtak() {
 }
 run_step "CloudTAK" "soft" step_cloudtak
 
-# ── 6. ADS-B setup ──
+# ── 6. Onboarding Portal setup ──
+step_portal() {
+  info "Running Onboarding Portal setup..."
+  bash "${SCRIPTS_DIR}/setup-onboarding.sh" 2>&1 | tee -a "$LOG"
+  return ${PIPESTATUS[0]}
+}
+run_step "Portal" "soft" step_portal
+
+# ── 7. ADS-B setup ──
 step_adsb() {
   info "Running ADS-B setup..."
   bash "${SCRIPTS_DIR}/setup-adsb.sh" "${ADSB_LAT}" "${ADSB_LON}" "${ADSB_RADIUS}" 2>&1 | tee -a "$LOG"
@@ -175,14 +184,32 @@ step_adsb() {
 }
 run_step "ADS-B" "soft" step_adsb
 
-# ── 7. Update MOTD ──
+# ── 8. MapProxy tile cache ──
+step_mapproxy() {
+  info "Setting up MapProxy tile cache..."
+  bash "${SCRIPTS_DIR}/setup-mapproxy.sh" 2>&1 | tee -a "$LOG"
+  return ${PIPESTATUS[0]}
+}
+run_step "MapProxy" "soft" step_mapproxy
+
+# ── 9. Map sources ──
+step_maps() {
+  info "Setting up map sources..."
+  bash "${SCRIPTS_DIR}/setup-maps.sh" 2>&1 | tee -a "$LOG"
+  return ${PIPESTATUS[0]}
+}
+run_step "Maps" "soft" step_maps
+
+# ── 10. Update MOTD ──
 update_motd() {
   # Build status lines
   local status_ots="OK"
   local status_cloudtak="OK"
+  local status_portal="OK"
   local status_adsb="OK"
   [[ ${STEP_STATUS[OTS]} -ne 0 ]] && status_ots="FAILED"
   [[ ${STEP_STATUS[CloudTAK]} -ne 0 ]] && status_cloudtak="FAILED"
+  [[ ${STEP_STATUS[Portal]} -ne 0 ]] && status_portal="FAILED"
   [[ ${STEP_STATUS[ADS-B]} -ne 0 ]] && status_adsb="FAILED"
 
   cat > /etc/motd << MOTD_EOF
@@ -191,6 +218,7 @@ update_motd() {
 ============================================
  OTS:      https://${OTS_DOMAIN}:8443 [${status_ots}]
  CloudTAK: https://${CLOUDTAK_DOMAIN} [${status_cloudtak}]
+ Portal:   https://${PORTAL_DOMAIN} [${status_portal}]
  Tiles:    https://${TILES_DOMAIN}
  ADS-B:    ${ADSB_LAT}, ${ADSB_LON} (radius ${ADSB_RADIUS} nm) [${status_adsb}]
 
@@ -228,6 +256,7 @@ fi
 echo "" | tee -a "$LOG"
 echo " OTS:      https://${OTS_DOMAIN}:8443" | tee -a "$LOG"
 echo " CloudTAK: https://${CLOUDTAK_DOMAIN}" | tee -a "$LOG"
+echo " Portal:   https://${PORTAL_DOMAIN}" | tee -a "$LOG"
 echo " Tiles:    https://${TILES_DOMAIN}" | tee -a "$LOG"
 echo " ADS-B:    ${ADSB_LAT}, ${ADSB_LON}" | tee -a "$LOG"
 echo "" | tee -a "$LOG"

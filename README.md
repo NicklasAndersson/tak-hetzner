@@ -11,7 +11,7 @@ This project provides two independent deployment pipelines for running a TAK ser
 | **OpenTAK Server** | [`ots/`](ots/) | Open-source TAK server installed natively, nginx reverse proxy |
 | **Official TAK Server** | [`tak-server/`](tak-server/) | GoC Docker release from [tak.gov](https://tak.gov), Caddy reverse proxy |
 
-Both variants include [CloudTAK](https://github.com/dfpc-coe/CloudTAK) (web-based TAK client), Let's Encrypt TLS, server hardening (fail2ban, UFW, IP blocklist, SSH hardening), and unattended security updates.
+Both variants include [CloudTAK](https://github.com/dfpc-coe/CloudTAK) (web-based TAK client), Let's Encrypt TLS, server hardening (fail2ban, UFW, IP blocklist, SSH hardening), and unattended security updates. The OTS variant also includes a MapProxy tile cache with pre-configured map sources for ATAK/iTAK.
 
 ## Prerequisites
 
@@ -50,15 +50,21 @@ tak/
 │   ├── config.env.example  # Configuration template
 │   ├── build.sh            # Generates cloud-init.yaml from template
 │   ├── deploy.sh           # Creates Hetzner VM and deploys
+│   ├── users.csv.example   # Bulk user provisioning template
 │   ├── scripts/            # Setup scripts (embedded in cloud-init)
-│   └── docs/               # DNS, ports, troubleshooting, updating
+│   └── docs/               # DNS, ports, troubleshooting, updating, lessons learned
 ├── tak-server/             # Official TAK Server deployment
 │   ├── config.env.example  # Configuration template
 │   ├── build.sh            # Generates cloud-init.yaml from template
 │   ├── deploy.sh           # Creates Hetzner VM, uploads zip, deploys
 │   ├── users.csv.example   # Bulk enrollment template
+│   ├── generate-enrollment-pdf.py  # Generates enrollment PDF with QR codes
 │   ├── scripts/            # Setup scripts (embedded in cloud-init)
-│   └── docs/               # Enrollment, ports
+│   └── docs/               # Enrollment, ports, iTAK findings
+├── maps/                   # ATAK map source XMLs (local build)
+│   ├── build-maps-package.sh  # Build data package locally
+│   └── *.xml               # MOBAC map source definitions
+├── maps-feature.md         # TAK maps documentation
 └── README.md
 ```
 

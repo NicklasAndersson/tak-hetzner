@@ -33,6 +33,18 @@ All ports below are opened automatically by cloud-init.
 | 9000 | TCP | MinIO | Internal | S3 API — should NOT be exposed |
 | 9002 | TCP | MinIO Console | Internal | Admin UI — should NOT be exposed |
 
+### MapProxy (Tile Cache)
+
+| Port | Proto | Service | Direction | Comment |
+|------|-------|---------|-----------|--------|
+| 8083 | TCP | MapProxy (gunicorn) | Loopback | Tile cache — nginx proxies via `tiles.cloudtak` domain |
+
+### Onboarding Portal (Docker)
+
+| Port | Proto | Service | Direction | Comment |
+|------|-------|---------|-----------|---------|
+| 5050 | TCP | Onboarding Portal | Internal/proxy | Web UI — accessed via nginx reverse proxy on 443 |
+
 ### Video Streaming (MediaMTX)
 
 > **Note:** OTS installs its own MediaMTX instance listening on standard ports.
@@ -76,6 +88,7 @@ These ports should **never** be exposed externally:
 | Port | Service | Note |
 |------|---------|------|
 | 8081 | OTS API | Nginx proxies to here |
+| 8083 | MapProxy | Gunicorn WSGI — nginx proxies via tiles.cloudtak domain |
 | 5432 | PostGIS (internal) | Docker-internal |
 | 5672 | RabbitMQ AMQP | Internal message queue |
 | 6502 | Mumble ICE | Auth integration |

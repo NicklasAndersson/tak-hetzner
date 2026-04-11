@@ -130,6 +130,11 @@ write_files:
       CERTBOT_EMAIL="{{CERTBOT_EMAIL}}"
       TAK_CA_PASS="{{TAK_CA_PASS}}"
       TAK_ADMIN_PASS="{{TAK_ADMIN_PASS}}"
+      # Certificate details
+      TAK_STATE="{{TAK_STATE}}"
+      TAK_CITY="{{TAK_CITY}}"
+      TAK_ORGANIZATION="{{TAK_ORGANIZATION}}"
+      TAK_ORGANIZATIONAL_UNIT="{{TAK_ORGANIZATIONAL_UNIT}}"
       # CloudTAK configuration
       CLOUDTAK_DOMAIN="{{CLOUDTAK_DOMAIN}}"
       TILES_DOMAIN="{{TILES_DOMAIN}}"

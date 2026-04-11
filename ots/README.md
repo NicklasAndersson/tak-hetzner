@@ -13,6 +13,7 @@ This repo contains everything needed to deploy a TAK server on a Hetzner VPS wit
 | **MediaMTX** | Video streaming (RTSP/RTMP/HLS/WebRTC/SRT) | `ghcr.io/dfpc-coe/media-infra` |
 | **PostGIS** | PostgreSQL with GIS extensions (for CloudTAK) | `postgis/postgis` |
 | **MinIO** | S3-compatible object storage (for CloudTAK) | `minio/minio` |
+| **MapProxy** | Tile cache proxy for ATAK/iTAK map sources (7 layers) | MapProxy 6.0.1 (Python venv) |
 
 ---
 
@@ -32,16 +33,17 @@ In [Hetzner Cloud Console](https://console.hetzner.cloud/):
 
 ### 2. Create DNS Records
 
-At your DNS provider (e.g. Cloudflare), create three A records pointing to the Primary IP:
+At your DNS provider (e.g. Cloudflare), create four A records pointing to the Primary IP:
 
 | Type | Name | Value | TTL |
 |------|------|-------|-----|
 | A | `tak.example.com` | `<PRIMARY_IP>` | 300 |
 | A | `cloudtak.example.com` | `<PRIMARY_IP>` | 300 |
 | A | `tiles.cloudtak.example.com` | `<PRIMARY_IP>` | 300 |
+| A | `portal.example.com` | `<PRIMARY_IP>` | 300 |
 
 > Set TTL to 300 (5 min) initially. DNS propagation usually takes a few minutes.
-> All three records **must** be active before creating the server (Let's Encrypt needs them).
+> All four records **must** be active before creating the server (Let's Encrypt needs them).
 
 ### 3. Configure and Build cloud-init
 
@@ -133,13 +135,20 @@ tail -f /var/log/tak-setup.log
 │  └──────────────────────┘   └─────────────────────────────────┘ │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐ │
+│  │  MapProxy (tile cache)   tiles.cloudtak.example.com :443   │ │
+│  │  gunicorn :8083 → WMTS │ MBTiles cache in /var/cache/      │ │
+│  │  7 layers: OSM, OpenTopo, ESRI Sat/Clarity/Topo,           │ │
+│  │            OpenSeaMap Base/Seamarks                         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐ │
 │  │  UFW Firewall   │   fail2ban   │   unattended-upgrades     │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
-         ▲                    ▲
-         │ ATAK/iTAK/WinTAK  │ Browser
-         │ :8088 (TCP)        │ :443 (HTTPS)
-         │ :8089 (SSL)        │
+         ▲                    ▲                    ▲
+         │ ATAK/iTAK/WinTAK  │ Browser            │ ATAK map tiles
+         │ :8088 (TCP)        │ :443 (HTTPS)       │ tiles.cloudtak:443
+         │ :8089 (SSL)        │                    │
 ```
 
 ---
@@ -158,6 +167,9 @@ tail -f /var/log/tak-setup.log
 | `scripts/setup-cloudtak.sh` | CloudTAK integration with OTS (clone, nginx, certbot, server config) |
 | `scripts/setup-adsb.sh` | ADS-B flight tracking via Airplanes.live |
 | `scripts/setup-all.sh` | Orchestrates all setup scripts (called by cloud-init) |
+| `scripts/setup-mapproxy.sh` | MapProxy tile cache — installs MapProxy, gunicorn, nginx, Let's Encrypt, systemd service |
+| `scripts/setup-maps.sh` | Generates ATAK map source data package (7 layers) and uploads to OTS |
+| `scripts/setup-onboarding.sh` | Onboarding portal — self-service cert enrollment web UI |
 | `scripts/provision-users.sh` | Create OTS users from `users.csv` and print login instructions |
 | `users.csv` | User list for provisioning (gitignored) |
 | `users.csv.example` | Example user list — safe to share |
@@ -165,6 +177,7 @@ tail -f /var/log/tak-setup.log
 | `docs/dns.md` | DNS configuration guide |
 | `docs/updating.md` | How to update components |
 | `docs/troubleshooting.md` | Common problems and solutions |
+| `docs/lessons-learned.md` | Deployment lessons (CloudTAK cert extraction, API_URL split, etc.) |
 
 ---
 
@@ -214,6 +227,8 @@ Three A records pointing to your Hetzner Primary IP. See [docs/dns.md](docs/dns.
    - Let's Encrypt certificates
    - CloudTAK
    - ADS-B tracking
+   - MapProxy tile cache
+   - ATAK map source data package
 
 ---
 
@@ -234,6 +249,7 @@ See [docs/ports.md](docs/ports.md) for the complete port reference.
 | 8089 | OTS | SSL CoT streaming |
 | 5000 | CloudTAK | API (via reverse proxy) |
 | 5002 | CloudTAK | Tiles (via reverse proxy) |
+| 8083 | MapProxy | Tile cache (gunicorn, loopback only — nginx proxies via tiles.cloudtak domain) |
 
 ---
 
@@ -335,6 +351,36 @@ Flow: Airplanes.live API → OTS scheduled job → RabbitMQ → `cot_parser` →
 > parses all CoT messages including ADS-B. Both `opentakserver` and `cot_parser`
 > must be running for ADS-B to work.
 
+### MapProxy (Tile Cache)
+
+Config file: `/opt/mapproxy/mapproxy.yaml`
+
+MapProxy caches tiles from 7 upstream sources (OSM, OpenTopo, ESRI Satellite/Clarity/Topo, OpenSeaMap Base/Seamarks) and serves them via WMTS. ATAK/iTAK map source XMLs point to `tiles.cloudtak.<domain>` instead of hitting upstream tile servers directly.
+
+Key settings:
+```yaml
+globals:
+  cache:
+    refresh_before:
+      days: 7           # Re-fetch tiles older than 7 days
+```
+
+Cache location: `/var/cache/mapproxy/` (MBTiles files per layer)
+
+Seed tiles for a region (pre-fill cache):
+```bash
+sudo /opt/mapproxy/venv/bin/mapproxy-seed \
+  -f /opt/mapproxy/mapproxy.yaml \
+  -s /opt/mapproxy/seed.yaml
+```
+
+Manage the service:
+```bash
+sudo systemctl status mapproxy
+sudo systemctl restart mapproxy
+journalctl -u mapproxy -f
+```
+
 ### CloudTAK
 
 Config file: `~/cloudtak/.env`
@@ -376,6 +422,10 @@ sudo systemctl restart opentakserver cot_parser
 # CloudTAK
 cd ~/cloudtak && ./cloudtak.sh update
 
+# MapProxy
+sudo /opt/mapproxy/venv/bin/pip install --upgrade MapProxy
+sudo systemctl restart mapproxy
+
 # Check versions
 pip show opentakserver | grep Version
 cd ~/cloudtak && git log --oneline -1
@@ -404,6 +454,11 @@ docker compose logs -f api
 # Nginx
 sudo nginx -t
 sudo tail -f /var/log/nginx/error.log
+
+# MapProxy
+sudo systemctl status mapproxy
+journalctl -u mapproxy -f
+curl -s https://tiles.cloudtak.<DOMAIN>/osm/10/550/300.png | wc -c  # Should be >10KB
 
 # Firewall
 sudo ufw status

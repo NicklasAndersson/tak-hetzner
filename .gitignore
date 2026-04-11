@@ -31,6 +31,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Copilot agent instructions
+agents.md
+
 # Ansible vault password files
 .vault_pass
 .vault_password
@@ -47,6 +50,7 @@ kubeconfig
 *.pdf
 **/passwords.csv
 **/*-passwords.csv
+**/enrollment-output/
 
 # Python virtual environment
 .venv/

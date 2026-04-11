@@ -7,6 +7,8 @@
 #   1. setup-tak.sh         — Extract zip, build Docker, generate certs, start
 #   2. setup-letsencrypt.sh — Obtain Let's Encrypt cert, install into TAK
 #   3. setup-cloudtak.sh    — Install CloudTAK web client (Caddy reverse proxy)
+#   4. setup-enrollment.sh  — Mass enrollment tool
+#   5. setup-maps.sh        — Push map layers + upload map source data package
 #
 # Log: /var/log/tak-setup.log
 # =============================================================================
@@ -48,7 +50,7 @@ log "TAK Server zip found: $(du -h "$TAK_ZIP" | cut -f1)"
 # ------------------------------------------------------------------
 # 1. Install TAK Server
 # ------------------------------------------------------------------
-info "Step 1/4 — Installing TAK Server..."
+info "Step 1/5 — Installing TAK Server..."
 if bash "${SCRIPTS_DIR}/setup-tak.sh" 2>&1 | tee -a "$LOG"; then
   log "TAK Server installed successfully"
 else
@@ -58,7 +60,7 @@ fi
 # ------------------------------------------------------------------
 # 2. Let's Encrypt
 # ------------------------------------------------------------------
-info "Step 2/4 — Setting up Let's Encrypt..."
+info "Step 2/5 — Setting up Let's Encrypt..."
 if bash "${SCRIPTS_DIR}/setup-letsencrypt.sh" 2>&1 | tee -a "$LOG"; then
   log "Let's Encrypt configured successfully"
 else
@@ -69,7 +71,7 @@ fi
 # ------------------------------------------------------------------
 # 3. CloudTAK
 # ------------------------------------------------------------------
-info "Step 3/4 — Installing CloudTAK..."
+info "Step 3/5 — Installing CloudTAK..."
 if bash "${SCRIPTS_DIR}/setup-cloudtak.sh" 2>&1 | tee -a "$LOG"; then
   log "CloudTAK installed successfully"
 else
@@ -80,12 +82,23 @@ fi
 # ------------------------------------------------------------------
 # 4. Mass enrollment
 # ------------------------------------------------------------------
-info "Step 4/4 — Setting up mass enrollment tool..."
+info "Step 4/5 — Setting up mass enrollment tool..."
 if bash "${SCRIPTS_DIR}/setup-enrollment.sh" 2>&1 | tee -a "$LOG"; then
   log "Enrollment tool installed successfully"
 else
   warn "Enrollment setup failed — not critical"
   warn "You can retry later: sudo bash /opt/scripts/setup-enrollment.sh"
+fi
+
+# ------------------------------------------------------------------
+# 5. Map sources
+# ------------------------------------------------------------------
+info "Step 5/5 — Setting up map sources..."
+if bash "${SCRIPTS_DIR}/setup-maps.sh" 2>&1 | tee -a "$LOG"; then
+  log "Map sources configured successfully"
+else
+  warn "Map sources setup failed — not critical"
+  warn "You can retry later: sudo bash /opt/scripts/setup-maps.sh"
 fi
 
 # ------------------------------------------------------------------

@@ -148,16 +148,18 @@ if [[ -n "$CORE_CONFIG" ]]; then
   # Backup
   cp "$CORE_CONFIG" "${CORE_CONFIG}.bak.$(date +%s)"
 
-  # Use LE cert for the global TLS keystore (streaming ports 8089, 8090).
-  # This allows iTAK to connect on port 8090 (auth="file") without needing
-  # the TAK CA truststore pre-installed, since iOS/Android trust LE natively.
-  # The truststoreFile (truststore-root.jks) remains unchanged so the server
-  # still validates ATAK client certs signed by the TAK CA on port 8089.
-  # Federation TLS is NOT changed (it has its own <tls> element).
-  # Determine the container-relative path for the JKS keystore
-  CONTAINER_JKS_PATH=$(echo "$JKS_FILE" | sed "s|${TAK_DIR}/||")
+  # Use LE cert for the global TLS keystore (streaming port 8089).
+  # This means iOS/Android trust the server natively (LE is in their
+  # trust stores). The truststoreFile (truststore-root.jks) remains
+  # unchanged so the server still validates client certs signed by the
+  # TAK CA. Federation TLS is NOT changed (it has its own <tls> element).
+  # Determine the container-relative path for the JKS keystore.
+  # The container mounts the CoreConfig.xml parent dir as /opt/tak/,
+  # so strip that directory prefix to get the container-relative path.
+  CONTAINER_BASE_DIR=$(dirname "$CORE_CONFIG")
+  CONTAINER_JKS_PATH=$(echo "$JKS_FILE" | sed "s|${CONTAINER_BASE_DIR}/||")
 
-  # Update global TLS keystore for streaming inputs (8089, 8090)
+  # Update global TLS keystore for streaming input (8089)
   python3 -c "
 import re
 with open('$CORE_CONFIG') as f:
@@ -171,7 +173,7 @@ xml = re.sub(
 with open('$CORE_CONFIG', 'w') as f:
     f.write(xml)
 "
-  log "Updated global TLS keystore to LE for streaming ports (8089, 8090)"
+  log "Updated global TLS keystore to LE for streaming port (8089)"
 
   # Update the enrollment connector (port 8446) to use LE cert
   if grep -q 'port="8446"' "$CORE_CONFIG"; then
@@ -232,7 +234,7 @@ with open('$CORE_CONFIG', 'w') as f:
     fi
 
     # Determine container-relative path for the CA keystore
-    CONTAINER_CA_PATH=$(echo "$CA_JKS" | sed "s|${TAK_DIR}/||")
+    CONTAINER_CA_PATH=$(echo "$CA_JKS" | sed "s|${CONTAINER_BASE_DIR}/||")
 
     # Insert certificateSigning block after </auth>
     sed -i "/<\/auth>/a\\    <certificateSigning CA=\"TAKServer\">\n        <certificateConfig>\n            <nameEntries>\n                <nameEntry name=\"O\" value=\"TAK\"\/>\n                <nameEntry name=\"OU\" value=\"TAK\"\/>\n            <\/nameEntries>\n        <\/certificateConfig>\n        <TAKServerCAConfig keystore=\"JKS\" keystoreFile=\"${CONTAINER_CA_PATH}\" keystorePass=\"${TAK_CA_PASS}\" validityDays=\"1825\" signatureAlg=\"SHA256WithRSA\"\/>\n    <\/certificateSigning>" "$CORE_CONFIG"
@@ -242,19 +244,8 @@ with open('$CORE_CONFIG', 'w') as f:
   fi
 
   # ------------------------------------------------------------------
-  # 5b. Add iTAK streaming input (port 8090, username/password auth)
+  # 5b. (Removed — port 8090 no longer used)
   # ------------------------------------------------------------------
-  if ! grep -q 'port="8090"' "$CORE_CONFIG"; then
-    info "Adding port 8090 input for iTAK (username/password auth)..."
-    sed -i '/<input _name="stdssl"/a\            <input _name="stdssl_auth" protocol="tls" port="8090" auth="file" coreVersion="2"/>' "$CORE_CONFIG"
-    log "Added port 8090 input for iTAK"
-
-    # Open firewall
-    ufw allow 8090/tcp comment "iTAK streaming" 2>/dev/null || true
-    log "Opened port 8090 in firewall"
-  else
-    info "Port 8090 input already present in CoreConfig.xml"
-  fi
 
   info "Config: ${CORE_CONFIG}"
 else

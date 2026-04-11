@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customMapSource>
+    <name>OpenSeaMap - Base Chart</name>
+    <minZoom>0</minZoom>
+    <maxZoom>18</maxZoom>
+    <tileType>png</tileType>
+    <tileUpdate>None</tileUpdate>
+    <serverParts>t1 t2 t3</serverParts>
+    <url>https://{$serverpart}.openseamap.org/tiles/base/{$z}/{$x}/{$y}.png</url>
+    <backgroundColor>#000000</backgroundColor>
+</customMapSource>

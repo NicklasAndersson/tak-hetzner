@@ -1,20 +1,21 @@
 #!/bin/bash
 # =============================================================================
-# setup-enrollment.sh — Install TAK mass enrollment tool
+# setup-enrollment.sh — Install TAK enrollment + provisioning tools
 # =============================================================================
 # Clones https://github.com/sgofferj/TAK-mass-enrollment and configures it
-# for automated user provisioning from a CSV file.
+# for automated user provisioning from a CSV file. Also installs the
+# provision-users.sh script that generates client certificates and data
+# packages for both ATAK and iTAK.
 #
 # What it does:
 #   1. Installs Python 3 venv/pip if needed
 #   2. Clones the TAK-mass-enrollment repository
 #   3. Sets up Python virtual environment with dependencies
-#   4. Extracts unencrypted admin cert/key for API access
-#   5. Creates a wrapper script (/opt/tak-enrollment/enroll.sh)
-#   6. Runs initial enrollment if /opt/tak-enrollment/users.csv exists
-#
-# The enrollment tool creates TAK Server users with passwords and generates
-# a PDF with ATAK Quick Connect QR codes for each user.
+#   4. Patches main.py to save generated passwords to CSV
+#   5. Extracts unencrypted admin cert/key for API access
+#   6. Installs provision-users.sh + generate-enrollment-pdf.py
+#   7. Creates wrapper scripts
+#   8. Runs initial provisioning if users.csv exists
 #
 # CSV format (semicolon-separated, first line skipped as header):
 #   Name;username;groups;IN groups;OUT groups
@@ -24,8 +25,8 @@
 #   - Admin cert generated (/opt/tak/tak/certs/files/admin.p12)
 #   - /opt/scripts/config.env with TAK_DOMAIN, TAK_CA_PASS
 #
-# After setup, add users any time with:
-#   sudo /opt/tak-enrollment/enroll.sh /path/to/users.csv
+# After setup, provision users any time with:
+#   sudo /opt/tak-enrollment/provision.sh /path/to/users.csv
 # =============================================================================
 set -euo pipefail
 
@@ -49,7 +50,7 @@ REPO_DIR="${ENROLL_DIR}/TAK-mass-enrollment"
 TAK_DIR="/opt/tak"
 CERT_DIR="${TAK_DIR}/tak/certs"
 
-info "Installing TAK mass enrollment tool..."
+info "Installing TAK enrollment + provisioning tools..."
 info "  Repo: https://github.com/sgofferj/TAK-mass-enrollment"
 info "  Install dir: ${ENROLL_DIR}"
 
@@ -94,6 +95,7 @@ fi
 source "${REPO_DIR}/venv/bin/activate"
 pip install --quiet --upgrade pip
 pip install --quiet -r requirements.txt
+pip install --quiet qrcode Pillow fpdf2
 deactivate
 log "Python venv ready (${REPO_DIR}/venv)"
 
@@ -134,15 +136,54 @@ chmod 600 "${ENROLL_DIR}/admin-key.pem"
 log "Admin cert extracted: ${ENROLL_DIR}/admin.pem + admin-key.pem"
 
 # ------------------------------------------------------------------
-# 6. Create wrapper script
+# 6. Patch main.py to save passwords to CSV
+# ------------------------------------------------------------------
+info "Patching main.py to save passwords..."
+if [[ -f /opt/scripts/patch-main.py ]]; then
+  cd "$REPO_DIR"
+  python3 /opt/scripts/patch-main.py
+  log "main.py patched (passwords.csv will be saved)"
+else
+  warn "patch-main.py not found — passwords won't be saved to CSV"
+fi
+
+# ------------------------------------------------------------------
+# 7. Install provisioning scripts
+# ------------------------------------------------------------------
+info "Installing provisioning scripts..."
+
+# Copy provision-users.sh
+if [[ -f /opt/scripts/provision-users.sh ]]; then
+  cp /opt/scripts/provision-users.sh "${ENROLL_DIR}/provision.sh"
+  chmod +x "${ENROLL_DIR}/provision.sh"
+  log "Provisioning script: ${ENROLL_DIR}/provision.sh"
+else
+  warn "provision-users.sh not found in /opt/scripts/"
+fi
+
+# Copy enrollment PDF generator
+if [[ -f /opt/scripts/generate-enrollment-pdf.py ]]; then
+  cp /opt/scripts/generate-enrollment-pdf.py "${ENROLL_DIR}/generate-enrollment-pdf.py"
+  log "PDF generator: ${ENROLL_DIR}/generate-enrollment-pdf.py"
+else
+  warn "generate-enrollment-pdf.py not found in /opt/scripts/"
+fi
+
+# Create output directory
+mkdir -p /home/tak/enrollment-output/datapackages
+chown -R tak:tak /home/tak/enrollment-output
+
+# ------------------------------------------------------------------
+# 8. Create wrapper script (enroll.sh — legacy, calls provision.sh)
 # ------------------------------------------------------------------
 cat > "${ENROLL_DIR}/enroll.sh" << 'WRAPPER'
 #!/bin/bash
 # =============================================================================
-# enroll.sh — TAK mass enrollment wrapper
+# enroll.sh — TAK user provisioning wrapper
 # =============================================================================
-# Creates TAK Server users from a CSV file and generates a PDF with
-# ATAK Quick Connect QR codes for each user.
+# Provisions TAK Server users from a CSV file: creates users, generates
+# client certificates, builds ATAK + iTAK data packages, and generates
+# enrollment PDFs with QR codes.
 #
 # Usage:
 #   sudo /opt/tak-enrollment/enroll.sh <users.csv>
@@ -151,89 +192,56 @@ cat > "${ENROLL_DIR}/enroll.sh" << 'WRAPPER'
 # CSV format (semicolon-separated, first line is skipped as header):
 #   Name;username;groups;IN groups;OUT groups
 #
-# Example CSV:
-#   Name;Username;Groups;IN Groups;OUT Groups
-#   Anna Svensson;anna;blue_team;;
-#   Erik Nilsson;erik;red_team;judges;
-#   Maria Lindberg;maria;blue_team,medics;judges;incidents
-#
 # Output:
-#   enrollment-slips.pdf — Print and cut into slips for each user
+#   ~/enrollment-output/enrollment-slips.pdf
+#   ~/enrollment-output/passwords.csv
+#   ~/enrollment-output/datapackages/<user>-itak.zip
+#   ~/enrollment-output/datapackages/<user>-atak.zip
 #
-# After running, download the PDF:
-#   scp tak@<server>:/opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf .
+# Download all artifacts:
+#   scp -r tak@<server>:~/enrollment-output/ .
 # =============================================================================
 set -euo pipefail
 
-source /opt/scripts/config.env
-
-CSV="${1:?Usage: $0 <users.csv> [--delete]}"
-[[ -f "$CSV" ]] || { echo "Error: CSV file not found: $CSV"; exit 1; }
-shift
-
-cd /opt/tak-enrollment/TAK-mass-enrollment
-source venv/bin/activate
-
-python main.py \
-  -s "${TAK_DOMAIN}" \
-  -c /opt/tak-enrollment/admin.pem \
-  -k /opt/tak-enrollment/admin-key.pem \
-  -f "$CSV" \
-  "$@"
-
-echo ""
-echo "============================================"
-echo " Enrollment complete!"
-echo " PDF: /opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf"
-echo ""
-echo " Download:"
-echo "   scp tak@${TAK_DOMAIN}:/opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf ."
-echo "============================================"
+exec /opt/tak-enrollment/provision.sh "$@"
 WRAPPER
 
 chmod +x "${ENROLL_DIR}/enroll.sh"
 log "Wrapper script: ${ENROLL_DIR}/enroll.sh"
 
 # ------------------------------------------------------------------
-# 7. Set permissions
+# 9. Set permissions
 # ------------------------------------------------------------------
 chown -R tak:tak "$ENROLL_DIR"
 log "Permissions set (owner: tak)"
 
 # ------------------------------------------------------------------
-# 8. Run initial enrollment if users.csv exists
+# 10. Run initial provisioning if users.csv exists
 # ------------------------------------------------------------------
 if [[ -f "${ENROLL_DIR}/users.csv" ]]; then
   echo ""
-  info "Found users.csv — running initial enrollment..."
+  info "Found users.csv — running initial provisioning..."
   info "CSV: ${ENROLL_DIR}/users.csv"
   echo ""
 
-  bash "${ENROLL_DIR}/enroll.sh" "${ENROLL_DIR}/users.csv" || {
-    warn "Initial enrollment had errors — check output above"
-    warn "You can retry: sudo /opt/tak-enrollment/enroll.sh /opt/tak-enrollment/users.csv"
+  bash "${ENROLL_DIR}/provision.sh" "${ENROLL_DIR}/users.csv" || {
+    warn "Initial provisioning had errors — check output above"
+    warn "You can retry: sudo /opt/tak-enrollment/provision.sh /opt/tak-enrollment/users.csv"
   }
-
-  # Copy PDF for easy download
-  if [[ -f "${REPO_DIR}/enrollment-slips.pdf" ]]; then
-    cp "${REPO_DIR}/enrollment-slips.pdf" "/home/tak/enrollment-slips.pdf"
-    chown tak:tak "/home/tak/enrollment-slips.pdf"
-    log "Enrollment PDF: /home/tak/enrollment-slips.pdf"
-    info "Download: scp tak@${TAK_DOMAIN}:~/enrollment-slips.pdf ."
-  fi
 else
-  info "No users.csv found — skipping initial enrollment"
-  info "To enroll users later:"
+  info "No users.csv found — skipping initial provisioning"
+  info "To provision users later:"
   info "  1. Create a CSV file (see docs/enrollment.md for format)"
   info "  2. Upload and run:"
   info "     scp users.csv tak@${TAK_DOMAIN}:/tmp/"
-  info "     ssh tak@${TAK_DOMAIN} 'sudo /opt/tak-enrollment/enroll.sh /tmp/users.csv'"
+  info "     ssh tak@${TAK_DOMAIN} 'sudo /opt/tak-enrollment/provision.sh /tmp/users.csv'"
 fi
 
 # ------------------------------------------------------------------
 # Done
 # ------------------------------------------------------------------
 echo ""
-log "TAK mass enrollment tool installed"
-info "  Enroll: sudo /opt/tak-enrollment/enroll.sh <users.csv>"
-info "  Delete: sudo /opt/tak-enrollment/enroll.sh <users.csv> --delete"
+log "TAK enrollment + provisioning tools installed"
+info "  Provision: sudo /opt/tak-enrollment/provision.sh <users.csv>"
+info "  Delete:    sudo /opt/tak-enrollment/provision.sh <users.csv> --delete"
+info "  Output:    ~/enrollment-output/"

@@ -48,6 +48,7 @@ REQUIRED_VARS=(
   TAK_HOSTNAME TAK_TIMEZONE TAK_LOCALE SSH_PUBLIC_KEY
   TAK_DOMAIN CERTBOT_EMAIL
   TAK_CA_PASS TAK_ADMIN_PASS
+  TAK_STATE TAK_CITY TAK_ORGANIZATION TAK_ORGANIZATIONAL_UNIT
   CLOUDTAK_DOMAIN TILES_DOMAIN
 )
 
@@ -85,6 +86,7 @@ declare -a SCRIPTS=(
   "setup-letsencrypt.sh|# --- Let's Encrypt setup script ---|/opt/scripts/setup-letsencrypt.sh"
   "setup-cloudtak.sh|# --- CloudTAK setup script ---|/opt/scripts/setup-cloudtak.sh"
   "setup-enrollment.sh|# --- Enrollment setup script ---|/opt/scripts/setup-enrollment.sh"
+  "setup-maps.sh|# --- Maps setup script ---|/opt/scripts/setup-maps.sh"
   "setup-all.sh|# --- Setup-all orchestration ---|/opt/scripts/setup-all.sh"
 )
 

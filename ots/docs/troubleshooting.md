@@ -133,25 +133,88 @@ curl -k https://<OTS_DOMAIN>:8446/Marti/api/tls/config
 ### cot_parser not running
 
 `cot_parser` is a separate service (since OTS v1.5.0) that parses all CoT messages
-via RabbitMQ. Without `cot_parser`, ADS-B, EUD routing, and other CoT flows won't work.
+via RabbitMQ. **Without `cot_parser`, ADS-B aircraft won't appear, EUD routing
+won't work, and CoT messages won't be processed.**
 
+**Detect:**
 ```bash
-# Check status
+# Quick check — should print "active"
+systemctl is-active cot_parser
+
+# Full status
 sudo systemctl status cot_parser
+```
 
-# Check that the process is running
-ps aux | grep cot_parser
+**Known issue:** `cot_parser.service` has `PartOf=opentakserver.service`, which
+means every time OTS restarts, `cot_parser` is stopped too. It has
+`Restart=on-failure` but often exits cleanly (exit 0) before RabbitMQ is ready,
+so systemd doesn't restart it. This causes `cot_parser` to silently stay dead
+after any `systemctl restart opentakserver`.
 
-# Restart
-sudo systemctl restart cot_parser
+**Fix (immediate):**
+```bash
+sudo systemctl start cot_parser
+```
 
-# Logs
-journalctl -u cot_parser -f --no-pager | tail -30
+**Fix (permanent) — ensure it auto-restarts:**
+```bash
+sudo systemctl edit cot_parser
+# Add:
+#   [Service]
+#   Restart=always
+#   RestartSec=10
+
+sudo systemctl daemon-reload
+sudo systemctl enable cot_parser
+```
+
+**Logs:**
+```bash
+# Journal (shows start/stop/crash history)
+sudo journalctl -u cot_parser --no-pager -n 30
+
+# Application log (shared with OTS)
+tail -50 ~/ots/logs/opentakserver.log
 ```
 
 ### ADS-B (Airplanes.live) not showing aircraft
 
-**1. Verify correct config keys are used:**
+ADS-B aircraft should appear automatically on the map (in CloudTAK, ATAK, and
+iTAK) as airplane icons. They are sent as standard CoT with types like
+`a-n-A-C-F` (fixed-wing) and `a-n-A-C-H` (helicopter). OTS does **not** log
+on successful ADS-B fetches — only errors appear in the log.
+
+**Quick diagnosis:**
+```bash
+# 1. Are both services running? (both must say "active")
+systemctl is-active opentakserver cot_parser
+
+# 2. Is the scheduler job configured?
+grep -A5 'get_adsb_data' ~/ots/config.yml
+
+# 3. Are there ADS-B points? (requires auth — use this script)
+python3 << 'EOF'
+import requests
+s = requests.session()
+r = s.get("http://localhost:8081/api/login", json={})
+csrf = r.json()["response"]["csrf_token"]
+s.headers["X-XSRF-TOKEN"] = csrf
+s.headers["Referer"] = "http://localhost:8081"
+s.post("http://localhost:8081/api/login", json={"username": "administrator", "password": "YOUR_PASSWORD"})
+r = s.get("http://localhost:8081/api/point")
+points = r.json().get("results", [])
+adsb = [p for p in points if "a-n-A" in str(p.get("type","")) or "a-f-A" in str(p.get("type",""))]
+print(f"ADS-B points: {len(adsb)} (total points: {len(points)})")
+for p in adsb[:5]:
+    print(f"  {p.get('callsign','?')} type={p.get('type')} lat={p.get('latitude')} lon={p.get('longitude')}")
+EOF
+```
+
+**Most common cause: `cot_parser` is inactive.** See section above.
+
+**Other checks:**
+
+**1. Verify correct config keys:**
 ```bash
 # CORRECT keys (OTS_ADSB_*)
 grep -E 'OTS_ADSB_LAT|OTS_ADSB_LON|OTS_ADSB_RADIUS' ~/ots/config.yml
@@ -161,33 +224,25 @@ grep 'OTS_AIRPLANES_LIVE' ~/ots/config.yml
 # If these exist, run: sudo bash /opt/scripts/setup-adsb.sh
 ```
 
-**2. Verify the scheduled job is enabled:**
+**2. Verify the scheduled job is active:**
 ```bash
 grep -A5 'get_adsb_data' ~/ots/config.yml
 # next_run_time MUST have a date (not null)
 # If null: run sudo bash /opt/scripts/setup-adsb.sh
 ```
 
-**3. Verify all three services are running:**
+**3. Test the upstream API directly:**
 ```bash
-sudo systemctl status opentakserver cot_parser
-ps aux | grep -E 'opentakserver|cot_parser|eud_handler' | grep -v grep
+curl -s "https://api.airplanes.live/v2/point/<LAT>/<LON>/50" | python3 -c "
+import sys, json; d = json.load(sys.stdin); print(f'{len(d.get(\"ac\",[]))} aircraft found')
+"
 ```
 
-**4. Check logs:**
-```bash
-# Search for ADS-B activity in logs
-grep 'get_adsb_data' ~/ots/logs/opentakserver.log | tail -10
-
-# Search for errors
-grep -i 'error\|fail\|exception' ~/ots/logs/opentakserver.log | tail -20
-```
-
-**5. Test the API manually:**
-```bash
-# Test the Airplanes.live API directly
-curl -s "https://api.airplanes.live/v2/point/<LAT>/<LON>/50" | python3 -m json.tool | head -20
-```
+**4. Not visible in ATAK/iTAK but visible in CloudTAK:**
+- Confirm your app is **connected** to the server (green server icon)
+- In ATAK: Overlay Manager → ensure "Air" / "Tracks" layer is enabled
+- In iTAK: Settings → Contacts/Tracks → ensure air tracks aren't filtered
+- ADS-B CoT messages are ephemeral (~2 min stale time) — zoom out to see them
 
 ---
 
@@ -326,6 +381,7 @@ sudo fail2ban-client status sshd | grep "Banned IP"
 # DNS lookup
 dig +short <OTS_DOMAIN>
 dig +short <TILES_DOMAIN>
+dig +short tiles.cloudtak.<DOMAIN>
 
 # Check open ports from outside (run locally)
 nmap -p 22,80,443,8080,8088,8089,8443,8446 <OTS_DOMAIN>
@@ -511,35 +567,37 @@ sudo nginx -t && sudo systemctl reload nginx
 If setup-cloudtak.sh failed to configure the server connection:
 
 ```bash
-# 1. Generate admin client cert (if not already done)
-python3 << 'PYEOF'
-import requests
-s = requests.session()
-r = s.get("http://localhost:8081/api/login", json={})
-csrf = r.json()["response"]["csrf_token"]
-s.headers["X-XSRF-TOKEN"] = csrf
-s.headers["Referer"] = "http://localhost:8081"
-s.post("http://localhost:8081/api/login", json={"username": "administrator", "password": "YOUR_PASSWORD"})
-s.post("http://localhost:8081/api/certificate", json={"username": "administrator"})
-print("Cert generated")
-PYEOF
+# 1. Extract matching cert+key from admin .p12 (on-disk .pem/.nopass.key may not match)
+openssl pkcs12 -in ~/ots/ca/certs/administrator/administrator.p12 \
+  -clcerts -nokeys -passin pass:atakatak -legacy -out /tmp/admin_cert.pem
+openssl pkcs12 -in ~/ots/ca/certs/administrator/administrator.p12 \
+  -nocerts -nodes -passin pass:atakatak -legacy -out /tmp/admin_key.pem
 
-# 2. Configure CloudTAK
+# Verify they match (hashes must be identical)
+openssl x509 -noout -modulus -in /tmp/admin_cert.pem | openssl md5
+openssl rsa -noout -modulus -in /tmp/admin_key.pem | openssl md5
+
+# 2. Configure CloudTAK server connection
 python3 << 'PYEOF'
-import requests, json, os
-home = os.path.expanduser("~")
-with open(f"{home}/ots/ca/certs/administrator/administrator.pem") as f:
-    cert = f.read()
-with open(f"{home}/ots/ca/ca.pem") as f:
-    ca = f.read()
-with open(f"{home}/ots/ca/certs/administrator/administrator.nopass.key") as f:
-    key = f.read()
+import requests, re
+
+with open("/tmp/admin_cert.pem") as f:
+    raw_cert = f.read()
+with open("/tmp/admin_key.pem") as f:
+    raw_key = f.read()
+with open("/home/tak/ots/ca/ca.pem") as f:
+    ca = f.read().strip()
+
+# Strip "Bag Attributes" headers from p12 extraction
+cert = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", raw_cert, re.DOTALL)[0]
+key = re.findall(r"-----BEGIN PRIVATE KEY-----.*?-----END PRIVATE KEY-----", raw_key, re.DOTALL)[0]
+
 r = requests.patch("http://localhost:5000/api/server", json={
     "name": "TAK Server",
-    "url": "https://<OTS_DOMAIN>:8443",
+    "url": "ssl://<OTS_DOMAIN>:8089",
     "api": "https://<OTS_DOMAIN>:8443",
     "webtak": "http://<OTS_DOMAIN>:8080",
-    "auth": {"cert": cert.strip() + "\n" + ca.strip() + "\n", "key": key},
+    "auth": {"cert": cert + "\n" + ca + "\n", "key": key},
     "username": "administrator", "password": "YOUR_PASSWORD"
 })
 print(r.status_code, r.text[:200])

@@ -44,7 +44,7 @@ source "$CONFIG"
 # --- Validate required variables ---
 REQUIRED_VARS=(
   TAK_HOSTNAME TAK_TIMEZONE TAK_LOCALE SSH_PUBLIC_KEY
-  OTS_DOMAIN CLOUDTAK_DOMAIN TILES_DOMAIN
+  OTS_DOMAIN CLOUDTAK_DOMAIN TILES_DOMAIN PORTAL_DOMAIN
   ADSB_LAT ADSB_LON ADSB_RADIUS
 )
 
@@ -80,7 +80,10 @@ log "All placeholders replaced"
 declare -a SCRIPTS=(
   "setup-letsencrypt.sh|# --- Let's Encrypt setup script ---|/opt/scripts/setup-letsencrypt.sh"
   "setup-cloudtak.sh|# --- CloudTAK setup script ---|/opt/scripts/setup-cloudtak.sh"
+  "setup-onboarding.sh|# --- Onboarding Portal setup script ---|/opt/scripts/setup-onboarding.sh"
   "setup-adsb.sh|# --- ADS-B setup script ---|/opt/scripts/setup-adsb.sh"
+  "setup-mapproxy.sh|# --- MapProxy tile cache script ---|/opt/scripts/setup-mapproxy.sh"
+  "setup-maps.sh|# --- Maps setup script ---|/opt/scripts/setup-maps.sh"
   "setup-all.sh|# --- Setup-all orchestration ---|/opt/scripts/setup-all.sh"
 )
 

@@ -8,6 +8,7 @@ There are three main components to update separately:
 |-----------|--------|--------|
 | OpenTAK Server | `pip install --upgrade opentakserver` | PyPI |
 | CloudTAK | `git pull` + `./cloudtak.sh update` | GitHub |
+| MapProxy | `pip install --upgrade MapProxy` (in venv) | PyPI |
 | System packages | `apt upgrade` (auto via unattended-upgrades) | Ubuntu repos |
 
 ---

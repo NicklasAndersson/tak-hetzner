@@ -9,7 +9,7 @@ Firewall rules configured by cloud-init.
 | 22 | TCP | SSH | Remote administration |
 | 80 | TCP | HTTP | Caddy ACME challenge + certbot |
 | 443 | TCP | HTTPS | Caddy reverse proxy (CloudTAK + Tiles) |
-| 8089 | TCP | SSL CoT | Secure Cursor-on-Target — primary ATAK connection |
+| 8089 | TCP | SSL CoT | Secure Cursor-on-Target — ATAK + iTAK (mTLS) |
 | 8443 | TCP | HTTPS | TAK Server Web UI and API |
 | 8446 | TCP | HTTPS | Certificate enrollment + OAuth (clientAuth=false) |
 | 9000 | TCP | Federation | Federation v1 (TAK Server to TAK Server) |
@@ -28,13 +28,16 @@ These ports are used internally by Docker containers and Caddy.
 | 9100 | MinIO API | S3-compatible object storage (remapped from 9000) |
 | 9102 | MinIO Console | MinIO web console (remapped from 9002) |
 
-## ATAK Client Configuration
+## Client Configuration
 
-Connect ATAK to the server using:
+Both ATAK (Android) and iTAK (iOS) connect to the same port:
 - **Address:** `your-domain.com`
 - **Port:** `8089`
-- **Protocol:** SSL
-- **Client certificate:** Import the `.p12` generated during setup
+- **Protocol:** SSL (mTLS — mutual TLS with client certificate)
+- **Client certificate:** Included in the data package (`.zip`)
+
+The provisioning script generates per-user data packages for both platforms.
+See [enrollment.md](enrollment.md) for details.
 
 ## Admin Web UI
 

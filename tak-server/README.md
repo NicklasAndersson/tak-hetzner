@@ -7,6 +7,7 @@ One-command deployment of the **official TAK Server** (from [tak.gov](https://ta
 | Component | Description |
 |-----------|-------------|
 | **TAK Server** | Official Docker release from tak.gov (TAK Server + PostgreSQL containers) |
+| **CloudTAK** | Browser-based TAK client & ETL tool (optional, requires `CLOUDTAK_DOMAIN`) |
 | **Let's Encrypt** | Trusted TLS certificate for the web UI |
 | **Server hardening** | SSH hardening, fail2ban, UFW, ipsum blocklist, unattended-upgrades |
 
@@ -57,6 +58,15 @@ Edit `config.env` before deploying:
 | `TAK_CA_PASS` | Password for the TAK CA and keystores | (change from default) |
 | `TAK_ADMIN_PASS` | Password for admin certificate | (change from default) |
 
+### CloudTAK (Optional)
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `CLOUDTAK_DOMAIN` | Domain for CloudTAK web client | `cloudtak.example.com` |
+| `TILES_DOMAIN` | Domain for PMTiles tile server | `tiles.cloudtak.example.com` |
+
+> Leave empty to skip CloudTAK installation. Both domains need DNS A records.
+
 ### Hetzner
 
 | Variable | Description | Default |
@@ -82,10 +92,15 @@ Import `admin.p12` into your browser, then open:
 https://tak.example.com:8443
 ```
 
-### Connect ATAK
+### Connect ATAK (Android)
 
-1. Import the client `.p12` certificate into ATAK
-2. Add server: `tak.example.com:8089` (SSL)
+Use the enrollment PDF QR code, or import the `-atak.zip` data package directly.
+
+### Connect iTAK (iOS)
+
+AirDrop or email the `-itak.zip` data package to the device and open it in iTAK.
+
+See [docs/enrollment.md](docs/enrollment.md) for the full provisioning workflow.
 
 ### Server management
 
@@ -129,11 +144,21 @@ tak-server/
 ├── cloud-init.yaml.tpl      # Cloud-init template with placeholders
 ├── cloud-init.yaml          # Generated output (gitignored)
 ├── takserver-docker-*.zip   # TAK Server Docker release (you provide)
+├── users.csv.example        # Bulk enrollment template
+├── users.csv                # Your user list (gitignored)
+├── generate-enrollment-pdf.py  # Generates enrollment PDF with QR codes
+├── patch-main.py            # Patches TAK-mass-enrollment for password export
 ├── scripts/
-│   ├── setup-all.sh         # Orchestrator — runs setup-tak + setup-letsencrypt
+│   ├── setup-all.sh         # Orchestrator — runs all setup scripts
 │   ├── setup-tak.sh         # Extracts zip, builds Docker image, starts containers
-│   └── setup-letsencrypt.sh # Let's Encrypt cert with PKCS12/JKS conversion
+│   ├── setup-letsencrypt.sh # Let's Encrypt cert with PKCS12/JKS conversion
+│   ├── setup-cloudtak.sh    # CloudTAK web client (Caddy reverse proxy)
+│   ├── setup-enrollment.sh  # Mass enrollment tool installation
+│   ├── setup-maps.sh        # Push map layers to TAK Server
+│   └── provision-users.sh   # Bulk user provisioning from CSV
 ├── docs/
-│   └── ports.md             # Firewall rules and port reference
+│   ├── enrollment.md        # User provisioning workflow (ATAK + iTAK)
+│   ├── ports.md             # Firewall rules and port reference
+│   └── itak-findings.md     # iTAK connection investigation and solution
 └── README.md
 ```

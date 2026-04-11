@@ -9,6 +9,7 @@ These **must** exist before deploying the server:
 | A | `<OTS_DOMAIN>` | `<PRIMARY_IP>` | 300 | Main domain — OTS Admin GUI |
 | A | `<CLOUDTAK_DOMAIN>` | `<PRIMARY_IP>` | 300 | CloudTAK web client |
 | A | `<TILES_DOMAIN>` | `<PRIMARY_IP>` | 300 | PMTiles tile server (CloudTAK) |
+| A | `<PORTAL_DOMAIN>` | `<PRIMARY_IP>` | 300 | Onboarding Portal |
 
 ## Optional DNS Records
 

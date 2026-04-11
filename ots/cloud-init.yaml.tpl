@@ -128,6 +128,7 @@ write_files:
       OTS_DOMAIN="{{OTS_DOMAIN}}"
       CLOUDTAK_DOMAIN="{{CLOUDTAK_DOMAIN}}"
       TILES_DOMAIN="{{TILES_DOMAIN}}"
+      PORTAL_DOMAIN="{{PORTAL_DOMAIN}}"
       # ADS-B position
       ADSB_LAT="{{ADSB_LAT}}"
       ADSB_LON="{{ADSB_LON}}"
@@ -330,6 +331,13 @@ write_files:
       y4Dd8ALnzCh9CmoQby+0KMzqW+rL4+lCP+Mlk417qeikp7gZsaEuQL5FqKQue1QAZa585IVLohzq
       5/Hj/wDv6RS/dFoAAA==
 
+
+  # --- Onboarding Portal setup script ---
+  - path: /opt/scripts/setup-onboarding.sh
+    permissions: '0755'
+    encoding: gz+b64
+    content: |
+      PLACEHOLDER_ONBOARDING
 
   # --- ADS-B setup script ---
   - path: /opt/scripts/setup-adsb.sh

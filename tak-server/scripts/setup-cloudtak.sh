@@ -312,6 +312,10 @@ if [[ -f "${CERT_DIR}/makeCert.sh" ]]; then
   cd "$CERT_DIR"
   export CAPASS="${TAK_CA_PASS}"
   export CA_NAME="takserver-CA"
+  export STATE="${TAK_STATE:-State}"
+  export CITY="${TAK_CITY:-City}"
+  export ORGANIZATION="${TAK_ORGANIZATION:-TAK}"
+  export ORGANIZATIONAL_UNIT="${TAK_ORGANIZATIONAL_UNIT:-TAK}"
 
   if [[ ! -f "${CERT_DIR}/files/cloudtak.p12" ]]; then
     info "Running makeCert.sh client cloudtak..."

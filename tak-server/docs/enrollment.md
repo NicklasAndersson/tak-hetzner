@@ -1,16 +1,38 @@
-# Mass User Enrollment
+# User Provisioning (ATAK + iTAK)
 
-Bulk-create TAK Server users from a CSV file and generate ATAK Quick Connect
-QR codes. Based on [TAK-mass-enrollment](https://github.com/sgofferj/TAK-mass-enrollment).
+Bulk-create TAK Server users and generate enrollment artifacts for both **ATAK**
+(Android) and **iTAK** (iOS). Based on
+[TAK-mass-enrollment](https://github.com/sgofferj/TAK-mass-enrollment).
 
 ## How it works
 
-The enrollment tool connects to the TAK Server API (port 8443) using the admin
-certificate and creates users with randomly generated passwords. It produces a
-PDF (`enrollment-slips.pdf`) with printable slips containing each user's name,
-groups, and a QR code that ATAK can scan to auto-configure the server connection.
+The provisioning script runs entirely on the server:
 
-The tool is installed automatically during deployment at `/opt/tak-enrollment/`.
+1. **Creates users** via the TAK Server API (port 8443) using the admin cert
+2. **Generates client certificates** (`makeCert.sh client <user>`)
+3. **Authorizes certificates** (`UserManager.jar certmod -A`)
+4. **Re-exports P12 for iOS** — TAK Server produces legacy RC2-40-CBC P12 files
+   that iOS cannot read. The script re-exports with AES-256-CBC encryption.
+5. **Builds data packages** — per-user `.zip` files for both ATAK and iTAK,
+   containing the client cert, CA truststore, and connection preferences
+6. **Generates enrollment PDF** — printable slips with ATAK QR codes and
+   iTAK data package import instructions
+
+### Output
+
+All artifacts are written to `~/enrollment-output/` on the server:
+
+```
+enrollment-output/
+├── enrollment-slips.pdf        # Print and cut — one slip per user
+├── passwords.csv               # Username;password pairs
+└── datapackages/
+    ├── anna-atak.zip           # ATAK data package
+    ├── anna-itak.zip           # iTAK data package (iOS-compatible P12)
+    ├── erik-atak.zip
+    ├── erik-itak.zip
+    └── ...
+```
 
 ## CSV format
 
@@ -39,15 +61,10 @@ Maria Lindberg;maria;blue_team,medics;judges;incidents
 Judge, James;jamesj;judges;;
 ```
 
-- Anna is in `blue_team`
-- Erik is in `red_team` and visible to `judges`
-- Maria is in `blue_team` and `medics`, visible to `judges`, can see `incidents`
-- James is in `judges`
-
 ## Initial deployment
 
-To enroll users during the first deployment, create a `users.csv` file in the
-`tak-server/` directory before running `deploy.sh`:
+To provision users during the first deployment, create `users.csv` before
+running `deploy.sh`:
 
 ```bash
 cp users.csv.example users.csv
@@ -55,63 +72,78 @@ cp users.csv.example users.csv
 ./deploy.sh
 ```
 
-The deploy script automatically uploads `users.csv` to the server. The
-`setup-enrollment.sh` script detects it and runs enrollment after TAK Server
-is up.
+The deploy script uploads `users.csv`, and `setup-enrollment.sh` will run the
+full provisioning flow after TAK Server is up. Artifacts are automatically
+downloaded to `enrollment-output/` in your local directory.
 
-## Adding users later (SSH one-liner)
+## Adding users later
 
-Upload a CSV and run enrollment in one command:
+Upload a CSV and run provisioning:
 
 ```bash
 scp users.csv tak@tak.example.com:/tmp/ && \
-  ssh tak@tak.example.com 'sudo /opt/tak-enrollment/enroll.sh /tmp/users.csv'
+  ssh tak@tak.example.com 'sudo /opt/tak-enrollment/provision.sh /tmp/users.csv'
 ```
 
-Then download the enrollment PDF:
+Then download all artifacts:
 
 ```bash
-scp tak@tak.example.com:/opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf .
+scp -r tak@tak.example.com:~/enrollment-output/ .
 ```
 
 Replace `tak.example.com` with your TAK Server domain.
 
 ## Deleting users
 
-To delete all users listed in a CSV:
-
 ```bash
 scp users.csv tak@tak.example.com:/tmp/ && \
-  ssh tak@tak.example.com 'sudo /opt/tak-enrollment/enroll.sh /tmp/users.csv --delete'
+  ssh tak@tak.example.com 'sudo /opt/tak-enrollment/provision.sh /tmp/users.csv --delete'
 ```
+
+## Distributing to users
+
+### ATAK (Android)
+
+1. Print enrollment PDF and cut into slips
+2. User opens ATAK → Settings → Network Preferences → Quick Connect
+3. Scans the QR code on their slip
+4. Enters password when prompted
+
+Or send the `-atak.zip` data package file and import it directly in ATAK.
+
+### iTAK (iOS)
+
+1. AirDrop or email the `-itak.zip` data package to the user's iPhone/iPad
+2. Open the file — iOS offers to open it in iTAK
+3. In iTAK: confirm the import, then tap on the server to connect
+4. Enter password when prompted
 
 ## Important notes
 
 - **Existing users are skipped** — if a username already exists on the server,
-  the tool will not modify it. This is a safety feature to prevent overwriting
-  admin accounts or changing passwords.
+  the tool will not modify it or change its password.
 - **Passwords are randomly generated** — each user gets a unique 20-character
-  password. The passwords are printed in the enrollment PDF slips.
+  password. Passwords are in both the PDF slips and `passwords.csv`.
 - **Groups are auto-created** — TAK Server creates groups automatically if they
   don't exist.
-- **ATAK only** — the QR codes work with ATAK Quick Connect. For CloudTAK users,
-  additional steps are needed (client cert + profile injection). See
-  [ports.md](ports.md) for CloudTAK user setup.
+- **All clients use port 8089** (mTLS) — both ATAK and iTAK connect with
+  client certificates on the same port.
+- **iOS P12 compatibility** — iTAK data packages use AES-256-CBC encrypted
+  P12 files (not the legacy RC2-40-CBC that TAK Server generates by default).
 
 ## Files on the server
 
 | Path | Description |
 |------|-------------|
-| `/opt/tak-enrollment/enroll.sh` | Wrapper script (run this) |
-| `/opt/tak-enrollment/admin.pem` | Admin certificate (for API auth) |
-| `/opt/tak-enrollment/admin-key.pem` | Admin private key (unencrypted) |
-| `/opt/tak-enrollment/users.csv` | Initial CSV (if uploaded during deploy) |
-| `/opt/tak-enrollment/TAK-mass-enrollment/` | Cloned repository |
-| `/opt/tak-enrollment/TAK-mass-enrollment/enrollment-slips.pdf` | Generated PDF |
+| `/opt/tak-enrollment/provision.sh` | Main provisioning script |
+| `/opt/tak-enrollment/enroll.sh` | Legacy wrapper (calls provision.sh) |
+| `/opt/tak-enrollment/generate-enrollment-pdf.py` | PDF generator |
+| `/opt/tak-enrollment/admin.pem` | Admin certificate (API auth) |
+| `/opt/tak-enrollment/admin-key.pem` | Admin private key |
+| `/opt/tak-enrollment/TAK-mass-enrollment/` | Cloned enrollment repo |
+| `~/enrollment-output/` | Generated artifacts (PDF, data packages) |
 
 ## Re-running setup
-
-If you need to reinstall or update the enrollment tool:
 
 ```bash
 ssh tak@tak.example.com 'sudo bash /opt/scripts/setup-enrollment.sh'
